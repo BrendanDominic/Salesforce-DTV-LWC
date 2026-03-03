@@ -1,0 +1,59 @@
+<template>
+    <lightning-card title="Product Request">
+        <div class="slds-m-top_small slds-m-bottom_medium">
+            <lightning-button label="Back" onclick={handleBackClick} class="slds-m-left_x-small"></lightning-button>
+        </div>
+        <div class="tab-container">
+            <button class={scheduledTabClass} onclick={showScheduledTab}>Scheduled</button>
+            <button class={unscheduledTabClass} onclick={showUnscheduledTab}>Unscheduled</button>
+        </div>
+        <template if:true={isScheduled}>
+            <template if:true={scheduledProducts.length}>
+                <lightning-datatable
+                    key-field="id"
+                    data={scheduledProducts}
+                    columns={scheduledColumns}
+                    onrowselection={handleScheduledRowSelection}
+                    >
+                </lightning-datatable>
+                <div class="slds-m-around_medium">
+                    <p>Selected Rows Count: {selectedRowsCount}</p>
+                </div>
+                <div class="button-row">
+                    <lightning-button label="Clear" onclick={handleScheduledClear}></lightning-button>
+                    <lightning-button label="Submit" variant="brand" onclick={handleScheduledSubmit} class="slds-m-left_small"></lightning-button>
+                </div>
+            </template>
+            <template if:true={isLoading}>
+                <lightning-spinner alternative-text="Loading"></lightning-spinner>
+            </template>
+        </template>
+        <template if:true={isUnscheduled}>
+            <template if:false={showUnscheduledProductSelection}>
+                <lightning-record-edit-form object-api-name="Product_Request__c">
+                    <lightning-input-field field-name="Request_Type__c" value={unscheduledRequestType}></lightning-input-field>
+                    <lightning-input-field field-name="Date_Needed_By__c" value={unscheduledDateNeededBy}></lightning-input-field>
+                </lightning-record-edit-form>
+                <div class="button-row">
+                    <lightning-button label="Clear" onclick={handleUnscheduledClear}></lightning-button>
+                    <lightning-button label="Next" variant="brand" onclick={handleUnscheduledNext} class="slds-m-left_small"></lightning-button>
+                </div>
+            </template>
+            <template if:true={showUnscheduledProductSelection}>
+                <lightning-datatable
+                    key-field="id"
+                    data={unscheduledProducts}
+                    columns={unscheduledColumns}
+                    draft-values={unscheduledDraftValues}
+                    oncellchange={handleUnscheduledCellChange}>
+                </lightning-datatable>
+                <div class="button-row">
+                    <lightning-button label="Submit" variant="brand" onclick={handleUnscheduledSubmit}></lightning-button>
+                </div>
+            </template>
+            <template if:true={isLoading}>
+                <lightning-spinner alternative-text="Loading"></lightning-spinner>
+            </template>
+        </template>
+    </lightning-card>
+</template>

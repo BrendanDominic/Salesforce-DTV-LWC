@@ -1,0 +1,26 @@
+.tab-container {
+    display: flex;
+    justify-content: flex-start;
+    margin-bottom: 1rem;
+}
+.tab-btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    background: #f3f3f3;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 8px 8px 0 0;
+    margin-right: 0.5rem;
+    outline: none;
+    transition: background 0.2s;
+}
+.tab-btn.active {
+    background: #0176d3;
+    color: #fff;
+}
+.button-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+    gap: 1rem;
+}
