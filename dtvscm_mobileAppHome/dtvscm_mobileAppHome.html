@@ -1,0 +1,36 @@
+<template>
+    <lightning-card>
+        <template if:true={isAllFlagsFalse}>
+        <div class="tile-container">
+            <div class="tile" onclick={handleProductRequest}>
+                <lightning-icon icon-name="utility:new" size="large"></lightning-icon>
+                <div class="tile-label">Product Request</div>
+            </div>
+            <div class="tile" onclick={handleRequestStatus}>
+                <lightning-icon icon-name="utility:approval" size="large"></lightning-icon>
+                <div class="tile-label">Request Status</div>
+            </div>
+            <div class="tile" onclick={handleProductTransfer}>
+                <lightning-icon icon-name="utility:change_owner" size="large"></lightning-icon>
+                <div class="tile-label">Product Transfer</div>
+            </div>
+            <div class="tile" onclick={handleIncomingTransfer}>
+                <lightning-icon icon-name="utility:download" size="large"></lightning-icon>
+                <div class="tile-label">Incoming Transfer</div>
+            </div>
+        </div>
+        </template>
+        <template if:true={showProductRequest}>
+            <c-dtvscm_product-request onback={handleBack}></c-dtvscm_product-request>
+        </template>
+        <template if:true={showRequestStatus}>
+            <c-dtvscm_request-status></c-dtvscm_request-status>
+        </template>
+        <template if:true={showProductTransfer}>
+            <c-dtvscm_product-transfer onback={handleBack}></c-dtvscm_product-transfer>
+        </template>
+        <template if:true={showIncomingTransfer}>
+            <c-dtvscm_incoming-transfer></c-dtvscm_incoming-transfer>
+        </template>
+    </lightning-card>
+</template>

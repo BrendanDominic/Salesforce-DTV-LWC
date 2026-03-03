@@ -1,0 +1,26 @@
+.tile-container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    margin: 1rem 0;
+}
+.tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #f3f3f3;
+    border-radius: 8px;
+    padding: 1rem;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    transition: box-shadow 0.2s;
+}
+.tile:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    background: #e0e5ee;
+}
+.tile-label {
+    margin-top: 0.5rem;
+    font-weight: 600;
+    text-align: center;
+}
