@@ -1,0 +1,44 @@
+<template>
+    <lightning-card>
+        <template if:false={showInitiateTransfer}>
+            <div class="slds-m-top_small slds-m-bottom_medium">
+                <lightning-button label="Back" onclick={handleBackClick} class="slds-m-left_x-small"></lightning-button>
+            </div>
+        <div class="slds-box slds-box_x-small slds-theme_default mobile-container">
+            <div class="clickable-header slds-p-around_medium slds-grid slds-grid_vertical-align-center" 
+                onclick={handleTransferTo}>
+                <lightning-icon 
+                    icon-name="utility:record" 
+                    size="small" 
+                    class="slds-m-right_small">
+                </lightning-icon>
+                <h2 class="slds-text-heading_small slds-truncate">Transfer To</h2>
+                <lightning-icon 
+                    icon-name="utility:chevronright" 
+                    size="xx-small" 
+                    class="slds-col_bump-left">
+                </lightning-icon>
+            </div>
+       
+            <div class="clickable-header slds-p-around_medium slds-grid slds-grid_vertical-align-center" 
+                onclick={handleHeaderClick}>
+                <lightning-icon 
+                    icon-name="utility:record" 
+                    size="small" 
+                    class="slds-m-right_small">
+                </lightning-icon>
+                <h2 class="slds-text-heading_small slds-truncate">Select Items to transfer</h2>
+                <lightning-icon 
+                    icon-name="utility:chevronright" 
+                    size="xx-small" 
+                    class="slds-col_bump-left">
+                </lightning-icon>
+            </div>
+        </div>
+        </template>
+            <template if:true={showInitiateTransfer}>
+                    <c-dtvscm_initiate-product-transfer onback={handleBack}></c-dtvscm_initiate-product-transfer>
+            </template>
+        
+        </lightning-card>
+</template>
