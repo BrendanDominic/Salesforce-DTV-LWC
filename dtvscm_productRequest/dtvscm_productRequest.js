@@ -1,10 +1,10 @@
-import { LightningElement, wire, track } from 'lwc';
+import { LightningElement, wire, track, api } from 'lwc';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import FORM_FACTOR from '@salesforce/client/formFactor';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API 1 — lightning/uiGraphQLApi
-// Purpose: FETCH Product2 records via @wire
+// Purpose: FETCH Product2 + DTVSCM_Resource_Product__c records via @wire
 // Rule: Only for queries — mutations use uiRecordApi
 // ─────────────────────────────────────────────────────────────────────────────
 import { gql, graphql } from 'lightning/uiGraphQLApi';
@@ -31,9 +31,8 @@ import PRLI_QTY_REQUESTED    from '@salesforce/schema/ProductRequestLineItem.Qua
 import PRLI_STATUS           from '@salesforce/schema/ProductRequestLineItem.Status';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GraphQL QUERY — fetch all active Product2 records
-// Runs once on component load via @wire
-// ─────────────────────────────────────────────────────────────────────────────
+// GraphQL QUERY 1 — fetch all active Product2 records
+// ─────────────────────────────────────────��───────────────────────────────────
 const GET_PRODUCTS_QUERY = gql`
     query GetActiveProducts {
         uiapi {
@@ -58,26 +57,49 @@ const GET_PRODUCTS_QUERY = gql`
     }
 `;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GraphQL QUERY 2 — fetch DTVSCM_Resource_Product__c records
+// Gets the DTVSCM_Default_Quantity__c for each Product via the junction object
+// ─────────────────────────────────────────────────────────────────────────────
+const GET_RESOURCE_PRODUCTS_QUERY = gql`
+    query GetResourceProducts {
+        uiapi {
+            query {
+                Resource_Product__c(
+                    first: 200
+                    orderBy: { Name: { order: ASC } }
+                ) {
+                    edges {
+                        node {
+                            Id
+                            Name                        { value }
+                            DTVSCM_Default_Quantity__c  { value }
+                            DTVSCM_Product__c           { value }
+                            DTVSCM_ServiceResource__c   { value }
+                        }
+                    }
+                }
+            }
+        }
+    }
+`;
+
 export default class DtvscmRequestForm extends LightningElement {
 
     // ─────────────────────────────────────────────────────────────────────
     // formFactor — 'Small' = FSL Mobile | 'Large' = Web Desktop
-    // Used to apply different CSS class on shell + product list layout
     // ─────────────────────────────────────────────────────────────────────
     get isMobile()   { return FORM_FACTOR === 'Small';  }
     get isDesktop()  { return FORM_FACTOR === 'Large';  }
 
-    // Shell class switches between mobile-shell and desktop-shell
     get shellClass() {
         return FORM_FACTOR === 'Small' ? 'shell shell-mobile' : 'shell shell-desktop';
     }
 
-    // Product list class — single column mobile, two-column grid on desktop
     get productListClass() {
         return FORM_FACTOR === 'Small' ? 'product-list' : 'product-list product-list-desktop';
     }
 
-    // Bottom bar — fixed on mobile, sticky inside card on desktop
     get bottomBarClass() {
         return FORM_FACTOR === 'Small' ? 'bottom-bar bottom-bar-mobile' : 'bottom-bar bottom-bar-desktop';
     }
@@ -99,9 +121,7 @@ export default class DtvscmRequestForm extends LightningElement {
         this.activeTab = event.currentTarget.dataset.tab;
     }
 
-    // ── Back button — fires CustomEvent('back') to parent ───────────────
-    // Parent listens via: onback={handleBack}
-    // Parent sets showProductRequest = false to hide this component
+    // ── Back button ───────────────────────────────────────────────────────
     handleBack() {
         this.dispatchEvent(new CustomEvent('back'));
     }
@@ -115,10 +135,10 @@ export default class DtvscmRequestForm extends LightningElement {
     // ── Network state ─────────────────────────────────────────────────────
     @track isOnline   = navigator.onLine;
     @track isSyncing  = false;
-    @track offlineQueue = [];   // stores pending PR+PRLI creation operations
+    @track offlineQueue = [];
 
     // ─────────────────────────────────────────────────────────────────────
-    // Lifecycle — attach browser online/offline event listeners
+    // Lifecycle
     // ─────────────────────────────────────────────────────────────────────
     connectedCallback() {
         this._onlineHandler  = this.handleOnline.bind(this);
@@ -167,10 +187,9 @@ export default class DtvscmRequestForm extends LightningElement {
     get pendingQueueCount() { return this.offlineQueue.length; }
 
     // ─────────────────────────────────────────────────────────────────────
-    // GraphQL @wire — fetch Product2 records
-    // Three states: loading / error / data
+    // GraphQL @wire 1 — fetch Product2 records
     // ─────────────────────────────────────────────────────────────────────
-    @track allProducts   = [];   // full list from GraphQL
+    @track allProducts   = [];
     @track isLoading     = true;
     @track hasWireError  = false;
     @track wireErrorMessage = '';
@@ -188,33 +207,140 @@ export default class DtvscmRequestForm extends LightningElement {
 
         // STATE 2 — GraphQL error ❌
         if (errors) {
-            console.error('❌ GraphQL Wire Error:', JSON.stringify(errors));
+            console.error('❌ GraphQL Wire Error (Product2):', JSON.stringify(errors));
             this.hasWireError      = true;
             this.wireErrorMessage  = errors.map(e => e.message).join(', ');
             return;
         }
 
-        // STATE 3 — data passing ✅
+        // STATE 3 — data received ✅
         if (data) {
             console.log('✅ GraphQL Products received');
             this.hasWireError = false;
 
-            // Map each edge into a flat product object
-            // quantity = 0 means not selected
-            this.allProducts = data.uiapi.query.Product2.edges.map(edge => ({
-                id:          edge.node.Id,
-                name:        edge.node.Name?.value        || '—',
-                productCode: edge.node.ProductCode?.value || '—',
-                family:      edge.node.Family?.displayValue || '—',
-                description: edge.node.Description?.value || '',
-                selected:    false,  // tap the row to select/deselect
-                rowClass:    'product-row'
+            const productEdges = data?.uiapi?.query?.Product2?.edges;
+
+            if (!productEdges) {
+                console.warn('⚠️ Product2 edges is undefined — no products returned');
+                this.allProducts = [];
+                return;
+            }
+
+            this.allProducts = productEdges.map(edge => ({
+                id:              edge.node.Id,
+                name:            edge.node.Name?.value        || '—',
+                productCode:     edge.node.ProductCode?.value || '—',
+                family:          edge.node.Family?.displayValue || '—',
+                description:     edge.node.Description?.value || '',
+                defaultQuantity: 0,
+                hasDefaultQty:   false,
+                selected:        false,
+                rowClass:        'product-row'
             }));
+
+            // Merge default quantities if resource products already loaded
+            this._mergeDefaultQuantities();
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Filtered products — search applied on top of allProducts
+    // GraphQL @wire 2 — fetch DTVSCM_Resource_Product__c records
+    // Builds a map: Product2 Id → DTVSCM_Default_Quantity__c
+    //
+    // ⚠️ FIX: Added full null-safety checks for all three states:
+    //    - still loading (data + errors both undefined)
+    //    - errors returned
+    //    - data returned but query result / edges might be undefined
+    //      (happens when no Resource Product records exist yet)
+    // ─────────────────────────────────────────────────────────────────────
+    @track resourceProductMap = {};
+    @track resourceProductsLoaded = false;
+
+    @wire(graphql, { query: GET_RESOURCE_PRODUCTS_QUERY })
+    wiredResourceProducts({ data, errors }) {
+
+        // STATE 1 — still loading ⏳ (both undefined while wire is pending)
+        if (data === undefined && errors === undefined) {
+            return;
+        }
+
+        // STATE 2 — GraphQL error ❌
+        if (errors) {
+            console.error('❌ GraphQL Wire Error (Resource Products):', JSON.stringify(errors));
+            // Don't crash the component — resource products are optional
+            // Products will still load, just without default quantities
+            this.resourceProductsLoaded = true;
+            return;
+        }
+
+        // STATE 3 — data returned ✅
+        if (data) {
+            console.log('✅ GraphQL Resource Products wire returned data');
+
+            // ── NULL-SAFETY: check every level before accessing .edges ──
+            const queryResult = data?.uiapi?.query?.DTVSCM_Resource_Product__c;
+
+            if (!queryResult || !queryResult.edges) {
+                // No Resource Product records exist yet — this is perfectly fine
+                console.warn('⚠️ No DTVSCM_Resource_Product__c records found — defaultQuantity will be 0 for all products');
+                this.resourceProductMap = {};
+                this.resourceProductsLoaded = true;
+                // Still merge so products show "No default qty" gracefully
+                this._mergeDefaultQuantities();
+                return;
+            }
+
+            const edges = queryResult.edges;
+            const map = {};
+
+            edges.forEach(edge => {
+                // Safety check each node's fields
+                const productId  = edge.node?.DTVSCM_Product__c?.value;
+                const defaultQty = edge.node?.DTVSCM_Default_Quantity__c?.value;
+
+                if (productId && defaultQty != null) {
+                    map[productId] = defaultQty;
+                }
+            });
+
+            this.resourceProductMap = map;
+            this.resourceProductsLoaded = true;
+            console.log('📦 Resource Product Map built:', JSON.stringify(map));
+
+            // Merge into allProducts if products already loaded
+            this._mergeDefaultQuantities();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PRIVATE — merge defaultQuantity from resourceProductMap into allProducts
+    // Safe to call when either list is empty — just no-ops gracefully
+    // ─────────────────────────────────────────────────────────────────────
+    _mergeDefaultQuantities() {
+        if (this.allProducts.length === 0) {
+            return; // products not loaded yet — will be called again when they load
+        }
+
+        console.log('🔗 Merging default quantities into product list...');
+
+        const hasResourceProducts = Object.keys(this.resourceProductMap).length > 0;
+
+        this.allProducts = this.allProducts.map(p => {
+            const dq = hasResourceProducts ? this.resourceProductMap[p.id] : undefined;
+            return {
+                ...p,
+                defaultQuantity: dq != null ? dq : 0,
+                hasDefaultQty:   dq != null && dq > 0
+            };
+        });
+
+        console.log('✅ Merge complete. Products with default qty:',
+            this.allProducts.filter(p => p.hasDefaultQty).length
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Filtered products
     // ─────────────────────────────────────────────────────────────────────
     get filteredProducts() {
         if (!this.searchTerm) return this.allProducts;
@@ -229,8 +355,7 @@ export default class DtvscmRequestForm extends LightningElement {
     get hasFilteredProducts() { return this.filteredProducts.length > 0; }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Tap to toggle — tapping a row selects or deselects it
-    // Default quantity is 1 (set at submit time — no user input needed)
+    // Tap to toggle
     // ─────────────────────────────────────────────────────────────────────
     handleProductToggle(event) {
         const productId = event.currentTarget.dataset.productid;
@@ -246,20 +371,18 @@ export default class DtvscmRequestForm extends LightningElement {
         });
     }
 
-    // Selected products — only rows where selected === true
     get selectedProducts() {
         return this.allProducts.filter(p => p.selected);
     }
 
     get hasSelections()     { return this.selectedProducts.length > 0; }
     get selectedCount()     { return this.selectedProducts.length; }
-    get isActionsDisabled() { return !this.hasSelections; }  // ← LWC doesn't allow ! in template
+    get isActionsDisabled() { return !this.hasSelections; }
 
     // ─────────────────────────────────────────────────────────────────────
-    // CLEAR — resets all quantities back to 0, removes all selections
+    // CLEAR
     // ─────────────────────────────────────────────────────────────────────
     handleClear() {
-        // Deselect all rows — no DOM manipulation needed (no inputs)
         this.allProducts = this.allProducts.map(p => ({
             ...p,
             selected: false,
@@ -268,32 +391,22 @@ export default class DtvscmRequestForm extends LightningElement {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // SUBMIT — create ProductRequest + ProductRequestLineItems
-    //
-    // ONLINE:  createRecord (uiRecordApi) immediately
-    // OFFLINE: push to offlineQueue, sync when back online
-    //
-    // Flow:
-    //   1. createRecord(ProductRequest)  → get new PR Id
-    //   2. loop selectedProducts:
-    //      createRecord(ProductRequestLineItem) with ProductRequestId = PR Id
+    // SUBMIT
     // ─────────────────────────────────────────────────────────────────────
     async handleSubmit() {
         if (!this.hasSelections) return;
 
-        // Snapshot selected products at time of submit
         const itemsToSubmit = this.selectedProducts.map(p => ({
-            product2Id:  p.id,
-            productName: p.name
-            // quantityRequested intentionally omitted
-            // sending 0 causes Salesforce validation error on PRLI
+            product2Id:        p.id,
+            productName:       p.name,
+            quantityRequested: (p.defaultQuantity && p.defaultQuantity > 0)
+                                   ? p.defaultQuantity
+                                   : 1
         }));
 
         if (this.isOnline) {
-            // ── ONLINE: fire createRecord immediately ─────────────────────
             await this._createPRAndLineItems(itemsToSubmit);
         } else {
-            // ── OFFLINE: push entire operation to queue ───────────────────
             this.offlineQueue = [
                 ...this.offlineQueue,
                 {
@@ -309,14 +422,12 @@ export default class DtvscmRequestForm extends LightningElement {
                 variant: 'warning'
             }));
 
-            // Clear selections after queuing
             this.handleClear();
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // SYNC QUEUE — called when user taps "Sync Now" after coming back online
-    // Loops through offlineQueue and processes each batch
+    // SYNC QUEUE
     // ─────────────────────────────────────────────────────────────────────
     async handleSyncQueue() {
         if (!this.isOnline || this.offlineQueue.length === 0) return;
@@ -328,8 +439,7 @@ export default class DtvscmRequestForm extends LightningElement {
 
         for (const op of queue) {
             try {
-                await this._createPRAndLineItems(op.items, true); // true = silent (no individual toasts)
-                // Remove from queue on success
+                await this._createPRAndLineItems(op.items, true);
                 this.offlineQueue = this.offlineQueue.filter(q => q.id !== op.id);
                 success++;
             } catch (err) {
@@ -358,10 +468,6 @@ export default class DtvscmRequestForm extends LightningElement {
 
     // ─────────────────────────────────────────────────────────────────────
     // PRIVATE — _createPRAndLineItems
-    //
-    // Step 1: createRecord(ProductRequest) via uiRecordApi
-    // Step 2: loop items → createRecord(ProductRequestLineItem)
-    //         each PRLI linked to the PR via ProductRequestId field
     // ─────────────────────────────────────────────────────────────────────
     async _createPRAndLineItems(items, silent = false) {
 
@@ -381,7 +487,7 @@ export default class DtvscmRequestForm extends LightningElement {
         console.log('✅ ProductRequest created:', prId);
 
         // ── STEP 2: Create one PRLI per selected product ──────────────────
-        let prliCount = 0;
+        let prliCount  = 0;
         let prliErrors = [];
 
         for (const item of items) {
@@ -390,14 +496,14 @@ export default class DtvscmRequestForm extends LightningElement {
                 prliFields[PRLI_PR_ID.fieldApiName]         = prId;
                 prliFields[PRLI_PRODUCT2_ID.fieldApiName]   = item.product2Id;
                 prliFields[PRLI_STATUS.fieldApiName]        = 'Draft';
-                prliFields[PRLI_QTY_REQUESTED.fieldApiName] = 1;  // required — must be > 0
+                prliFields[PRLI_QTY_REQUESTED.fieldApiName] = item.quantityRequested;
 
                 const prliRecordInput = {
                     apiName: PRLI_OBJECT.objectApiName,
                     fields:  prliFields
                 };
 
-                console.log('⚡ createRecord — PRLI:', item.productName);
+                console.log(`⚡ createRecord — PRLI: ${item.productName} (qty: ${item.quantityRequested})`);
                 await createRecord(prliRecordInput);
                 prliCount++;
                 console.log('✅ PRLI created for:', item.productName);
@@ -408,7 +514,6 @@ export default class DtvscmRequestForm extends LightningElement {
             }
         }
 
-        // If any PRLI failed, show which ones
         if (prliErrors.length > 0) {
             this.dispatchEvent(new ShowToastEvent({
                 title:   'Some Line Items Failed',
@@ -426,7 +531,6 @@ export default class DtvscmRequestForm extends LightningElement {
                 message: `Product Request created with ${prliCount} line item(s).`,
                 variant: 'success'
             }));
-            // Clear selections after successful submit
             this.handleClear();
         }
     }
