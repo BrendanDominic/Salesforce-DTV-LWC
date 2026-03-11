@@ -5,7 +5,7 @@
         <!-- HEADER                                                         -->
         <!-- ══════════════════════════════════════════════════════════════ -->
         <div class="header">
-            <!-- Back button — plain arrow icon, no background, matches FSL Mobile native style -->
+            <!-- Back button -->
             <button class="back-btn" onclick={handleBack} title="Back">
                  <lightning-icon
                     icon-name="utility:chevronleft"
@@ -18,7 +18,7 @@
             <!-- Centered title -->
             <span class="header-title">Request</span>
 
-            <!-- Right side — pending badge or empty spacer to keep title centered -->
+            <!-- Right side — pending badge or empty spacer -->
             <div class="header-right">
                 <template if:true={hasPendingQueue}>
                     <span class="pending-badge">⏳ {pendingQueueCount}</span>
@@ -99,9 +99,11 @@
                 </div>
             </template>
 
-            <!-- ── Product List ────────────────────────────────────────── -->
-            <!-- Uses for:each instead of lightning-datatable             -->
-            <!-- lightning-datatable is NOT supported in FSL Mobile app   -->
+            <!-- ══════════════════════════════════════════════════════════ -->
+            <!-- PRODUCT LIST                                               -->
+            <!-- Uses for:each — lightning-datatable NOT supported in FSL  -->
+            <!-- Now shows DTVSCM_Default_Quantity from Resource Product   -->
+            <!-- ══════════════════════════════════════════════════════════ -->
             <template if:false={isLoading}>
                 <div class={productListClass}>
 
@@ -120,10 +122,22 @@
                             data-productid={product.id}
                             onclick={handleProductToggle}>
 
-                            <!-- Left: product info -->
+                            <!-- Left: product info + default quantity badge -->
                             <div class="product-info">
                                 <span class="product-name">{product.name}</span>
-                                <span class="product-meta">{product.productCode}</span>
+                                <span class="product-meta">{product.productCode} · {product.family}</span>
+
+                                <!-- Default Quantity from Resource Product -->
+                                <template if:true={product.hasDefaultQty}>
+                                    <span class="default-qty-badge">
+                                        Default Qty: {product.defaultQuantity}
+                                    </span>
+                                </template>
+                                <template if:false={product.hasDefaultQty}>
+                                    <span class="default-qty-none">
+                                        No default qty
+                                    </span>
+                                </template>
                             </div>
 
                             <!-- Right: check circle (selected) or empty circle (not) -->
@@ -170,9 +184,9 @@
         </template>
 
         <!-- ══════════════════════════════════════════════════════════════ -->
-        <!-- BOTTOM ACTION BAR — fixed, always visible                      -->
+        <!-- BOTTOM ACTION BAR                                              -->
         <!-- Clear button (green) | Submit button (green)                  -->
-        <!-- Matches exactly the image layout                              -->
+        <!-- Submit now maps DTVSCM_Default_Quantity → PRLI Qty            -->
         <!-- ══════════════════════════════════════════════════════════════ -->
         <div class={bottomBarClass}>
             <button
