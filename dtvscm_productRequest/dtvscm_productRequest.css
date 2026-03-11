@@ -1,7 +1,7 @@
 /* ── CSS Variables ───────────────────────────────────────────────────────── */
 :host {
     display: block;
-    width: 100%;         /* fill whatever SF page region gives us */
+    width: 100%;
     box-sizing: border-box;
     font-family: 'Salesforce Sans', -apple-system, Arial, sans-serif;
     --brand:           #0176d3;
@@ -27,7 +27,7 @@
     position: relative;
 }
 
-/* ── MOBILE shell — full viewport height, fixed layout ──────────────────── */
+/* ── MOBILE shell ────────────────────────────────────────────────────────── */
 .shell-mobile {
     height: 100vh;
     overflow: hidden;
@@ -35,7 +35,7 @@
     margin: 0 auto;
 }
 
-/* ── DESKTOP shell — fills full SF page, no floating card ───────────────── */
+/* ── DESKTOP shell ───────────────────────────────────────────────────────── */
 .shell-desktop {
     width: 100%;
     min-height: 100vh;
@@ -63,8 +63,6 @@
     min-height: 48px;
 }
 
-/* ── Back Button — plain arrow flush left, native FSL Mobile style ────────── */
-/* back button only */
 .back-btn {
     display: flex;
     align-items: center;
@@ -87,7 +85,7 @@
     --slds-c-icon-color-foreground-default: white;
     --lwc-colorTextIconDefault: #ffffff;
 }
-/* ── Header title — centered between back btn and right side ─────────────── */
+
 .header-title {
     color: #fff;
     font-size: 17px;
@@ -97,7 +95,6 @@
     text-align: center;
 }
 
-/* ── Header right — matches back-btn width to keep title truly centered ──── */
 .header-right {
     min-width: 64px;
     display: flex;
@@ -105,7 +102,7 @@
     align-items: center;
 }
 
-/* Desktop */
+/* Desktop header overrides */
 .shell-desktop .header-title { font-size: 20px; }
 .shell-desktop .header       { padding: 14px 32px; border-radius: 0; }
 .shell-desktop .back-btn     { font-size: 26px; min-width: 80px; padding: 4px 12px; }
@@ -160,7 +157,7 @@
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* TAB BAR                                                                    */
-/* ══════════════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════���═════════════════════════ */
 .tab-bar {
     display: flex;
     background: var(--surface);
@@ -196,7 +193,7 @@
     background: var(--selected-bg);
 }
 
-/* Desktop: tab bar full width with proper padding */
+/* Desktop tab overrides */
 .shell-desktop .tab-bar {
     padding: 0 32px;
     background: var(--surface);
@@ -207,7 +204,7 @@
     font-size: 14px;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════ */
+/* ═════════════════════════════════════════════════════════════════════���════ */
 /* SEARCH BAR                                                                 */
 /* ══════════════════════════════════════════════════════════════════════════ */
 .search-wrap {
@@ -273,19 +270,16 @@
 /* PRODUCT LIST                                                               */
 /* ══════════════════════════════════════════════════════════════════════════ */
 
-/* Mobile — single column, scrollable, padded for fixed bottom bar */
+/* Mobile — single column, scrollable */
 .product-list {
     flex: 1;
     overflow-y: auto;
     padding-bottom: 80px;
 }
 
-/* Desktop — 3-column grid, fills full width of SF page               */
-/* Responsive: 3 cols > 1200px | 2 cols > 768px | 1 col < 768px       */
+/* Desktop — responsive grid */
 .product-list-desktop {
     display: grid;
-    /* auto-fill: browser decides columns based on available width */
-    /* minmax(260px, 1fr): each card min 260px, grows to fill space */
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     padding: 16px 20px 100px;
     gap: 12px;
@@ -295,7 +289,7 @@
     box-sizing: border-box;
 }
 
-/* ── Product Row — BASE ───────────────────────────────────────────────────── */
+/* ── Product Row — BASE ─────────────────────────────────────────────────── */
 .product-row {
     display: flex;
     align-items: center;
@@ -305,8 +299,8 @@
     padding: 12px 14px;
     transition: background 0.15s, border-left 0.15s;
     border-left: 3px solid transparent;
-    cursor: pointer;          /* entire row is tappable */
-    user-select: none;        /* prevent text selection on tap */
+    cursor: pointer;
+    user-select: none;
 }
 
 .product-row.selected {
@@ -314,7 +308,7 @@
     border-left: 3px solid var(--selected-border);
 }
 
-/* Desktop row — card style, rounded, breathing room */
+/* Desktop row — card style */
 .product-list-desktop .product-row {
     border: 1px solid var(--border);
     border-left: 3px solid transparent;
@@ -362,7 +356,51 @@
 .shell-desktop .product-name { font-size: 13px; }
 .shell-desktop .product-meta { font-size: 12px; }
 
-/* ── Select Indicator — circle on right side of each row ────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* DEFAULT QUANTITY BADGE — from DTVSCM_Resource_Product__c                  */
+/* Shown below the product meta line in each product row                     */
+/* ══════════════════════════════════════════════════════════════════════════ */
+.default-qty-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    padding: 2px 8px;
+    background: #e8f4fd;
+    color: var(--brand);
+    border: 1px solid #b3d4f5;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    width: fit-content;
+}
+
+/* When row is selected, make badge slightly more prominent */
+.product-row.selected .default-qty-badge {
+    background: #cce5ff;
+    border-color: var(--brand);
+}
+
+/* No default qty — subtle muted text */
+.default-qty-none {
+    display: inline-block;
+    margin-top: 3px;
+    font-size: 10px;
+    color: #b0adab;
+    font-style: italic;
+}
+
+/* Desktop: slightly larger badges */
+.shell-desktop .default-qty-badge {
+    font-size: 11px;
+    padding: 3px 10px;
+}
+.shell-desktop .default-qty-none {
+    font-size: 11px;
+}
+
+/* ── Select Indicator ────────────────────────────────────────────────────── */
 .select-indicator {
     flex-shrink: 0;
     width: 28px;
@@ -385,7 +423,7 @@
     border-color: var(--brand);
 }
 
-/* Check circle — selected (animates in with a pop) */
+/* Check circle — selected */
 .check-circle {
     width: 22px;
     height: 22px;
@@ -429,9 +467,6 @@
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* BOTTOM ACTION BAR                                                          */
-/*                                                                            */
-/* MOBILE  → position: fixed — always visible above FSL nav bar              */
-/* DESKTOP → position: sticky inside the desktop card, natural flow          */
 /* ══════════════════════════════════════════════════════════════════════════ */
 .bottom-bar {
     display: flex;
@@ -440,7 +475,7 @@
     border-top: 1px solid var(--border);
 }
 
-/* Mobile — fixed to bottom of viewport */
+/* Mobile — fixed to bottom */
 .bottom-bar-mobile {
     position: fixed;
     bottom: 0;
@@ -453,7 +488,7 @@
     box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
 }
 
-/* Desktop — sticky at bottom of page, full width */
+/* Desktop — sticky */
 .bottom-bar-desktop {
     position: sticky;
     bottom: 0;
@@ -465,7 +500,7 @@
     width: 100%;
 }
 
-/* Desktop: buttons don't stretch full width */
+/* Desktop buttons */
 .bottom-bar-desktop .btn-clear,
 .bottom-bar-desktop .btn-submit {
     flex: 0 0 auto;
@@ -473,7 +508,7 @@
     font-size: 14px;
 }
 
-/* ── Buttons — shared styles ─────────────────────────────────────────────── */
+/* ── Buttons — shared styles ──────────────────────────────────────────────── */
 .btn-clear,
 .btn-submit {
     flex: 1;
@@ -519,7 +554,6 @@
     gap: 12px;
 }
 
-/* Desktop: more padding */
 .shell-desktop .center-state { padding: 60px 40px; }
 
 .unscheduled-state { padding: 60px 20px; }
@@ -538,8 +572,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-/* MEDIA QUERY FALLBACK — for browser resize on web                           */
-/* Works alongside formFactor for edge cases                                  */
+/* MEDIA QUERY FALLBACK                                                       */
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* 3 cols on wide screens */
 @media (min-width: 1200px) {
@@ -553,7 +586,7 @@
         grid-template-columns: repeat(2, 1fr);
     }
 }
-/* 1 col on small screens — fall back to mobile-like layout */
+/* 1 col on small screens */
 @media (max-width: 768px) {
     .product-list-desktop {
         grid-template-columns: 1fr;
