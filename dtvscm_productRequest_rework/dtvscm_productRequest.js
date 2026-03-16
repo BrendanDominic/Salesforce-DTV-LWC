@@ -64,7 +64,9 @@ const GET_CONTEXT_QUERY = gql`
                             DTVSCM_Product__r {
                                 Id
                                 Name        { value }
+                                Description { value }
                                 ProductCode { value }
+                                IsSerialized { value }
                             }
                         }
                     }
@@ -219,7 +221,10 @@ export default class Dtvscm_productRequest extends LightningElement {
             // 2) Client-side filter Resource Products by resolved ServiceResource Id
             const rpEdgesAll = data?.uiapi?.query?.DTVSCM_Resource_Product__c?.edges || [];
             const rpEdges = srId
-                ? rpEdgesAll.filter(e => e?.node?.DTVSCM_ServiceResource__c?.value === srId)
+                ? rpEdgesAll.filter(e =>
+                    e?.node?.DTVSCM_ServiceResource__c?.value === srId
+                    && e?.node?.DTVSCM_Product__r?.IsSerialized?.value === false
+                )
                 : [];
 
             if (!srId) {
@@ -247,6 +252,7 @@ export default class Dtvscm_productRequest extends LightningElement {
                     id:              node.Id,
                     product2Id:      product2?.Id || null,
                     name:            product2?.Name?.value || node?.Name?.value || '—',
+                    description:     product2?.Description?.value || '—',
                     productCode:     product2?.ProductCode?.value || '—',
                     defaultQuantity: defaultQuantity,
                     selected:        false,
