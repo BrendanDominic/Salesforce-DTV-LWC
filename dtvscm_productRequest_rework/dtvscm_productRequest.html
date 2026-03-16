@@ -1,7 +1,6 @@
 <template>
     <div class={shellClass}>
 
-
         <!-- HEADER -->
         <div class="header">
             <button class="back-btn" onclick={handleBack} title="Back">
@@ -20,7 +19,6 @@
             </div>
         </div>
 
-
         <!-- NETWORK BANNER -->
         <div class={networkBannerClass}>
             <span>{networkLabel}</span>
@@ -32,17 +30,14 @@
             </template>
         </div>
 
-
         <!-- TAB BAR -->
         <div class="tab-bar">
             <button class={scheduledTabClass}   data-tab="scheduled"   onclick={handleTabSwitch}>Scheduled</button>
             <button class={unscheduledTabClass} data-tab="unscheduled" onclick={handleTabSwitch}>Unscheduled</button>
         </div>
 
-
         <!-- SCHEDULED TAB -->
         <template if:true={isScheduledTab}>
-
 
             <!-- Search -->
             <div class="search-wrap">
@@ -60,7 +55,6 @@
                 </div>
             </div>
 
-
             <!-- Loading -->
             <template if:true={isLoading}>
                 <div class="center-state">
@@ -69,28 +63,20 @@
                 </div>
             </template>
 
-
             <!-- Wire Error -->
             <template if:true={hasWireError}>
                 <div class="err-banner">⚠️ {wireErrorMessage}</div>
             </template>
 
-
             <!-- Product List -->
-            <!-- Source: DTVSCM_ResourceProduct__c via GraphQL                    -->
-            <!-- name        → DTVSCM_Product__r.Name                            -->
-            <!-- productCode → DTVSCM_Product__r.ProductCode                     -->
-            <!-- defaultQuantity → DTVSCM_Default_Quantity__c (shown + sent to PRLI) -->
             <template if:false={isLoading}>
                 <div class={productListClass}>
-
 
                     <template if:false={hasFilteredProducts}>
                         <div class="center-state">
                             <p class="state-txt">No products found.</p>
                         </div>
                     </template>
-
 
                     <template for:each={filteredProducts} for:item="product">
                         <div
@@ -99,21 +85,17 @@
                             data-productid={product.id}
                             onclick={handleProductToggle}>
 
-
-                            <!-- Left: product name + code from DTVSCM_Product__r -->
+                            <!-- Left: product info -->
                             <div class="product-info">
                                 <span class="product-name">{product.name}</span>
                                 <span class="product-meta">{product.description}</span>
                             </div>
 
-
-                            <!-- Centre: DTVSCM_Default_Quantity__c value -->
-                            <!-- This is sent as QuantityRequested to PRLI on submit -->
+                            <!-- Centre: Default Quantity badge -->
                             <div class="qty-badge-wrap">
                                 <span class="qty-label">Qty</span>
                                 <span class="qty-value">{product.defaultQuantity}</span>
                             </div>
-
 
                             <!-- Right: select indicator -->
                             <div class="select-indicator">
@@ -127,14 +109,11 @@
                                 </template>
                             </div>
 
-
                         </div>
                     </template>
 
-
                 </div>
             </template>
-
 
             <!-- Selection Summary -->
             <template if:true={hasSelections}>
@@ -144,9 +123,7 @@
                 </div>
             </template>
 
-
         </template>
-
 
         <!-- UNSCHEDULED TAB -->
         <template if:true={isUnscheduledTab}>
@@ -157,13 +134,11 @@
             </div>
         </template>
 
-
         <!-- BOTTOM BAR -->
         <div class={bottomBarClass}>
-            <button class="btn-clear"  onclick={handleClear}  disabled={isActionsDisabled}>Clear</button>
+            <button class="btn-clear"  onclick={handleSave}   disabled={isSubmitted}>Save</button>
             <button class="btn-submit" onclick={handleSubmit} disabled={isActionsDisabled}>Submit</button>
         </div>
-
 
     </div>
 </template>
