@@ -18,7 +18,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-/* SHELL — BASE (shared by both mobile + desktop)                            */
+/* SHELL                                                                      */
 /* ══════════════════════════════════════════════════════════════════════════ */
 .shell {
     display: flex;
@@ -27,28 +27,29 @@
     position: relative;
 }
 
-/* ── MOBILE shell ────────────────────────────────────────────────────────── */
 .shell-mobile {
-    height: 100vh;
+    /* Use dynamic viewport to avoid mobile browser UI shrinking the viewport */
+    height: 100dvh;
+    max-height: 100dvh;
     overflow: hidden;
     max-width: 480px;
     margin: 0 auto;
 }
 
-/* ── DESKTOP shell ───────────────────────────────────────────────────────── */
 .shell-desktop {
     width: 100%;
-    min-height: 100vh;
+    /* Ensure full viewport height and allow inner flex child to scroll */
+    min-height: 100dvh;
+    max-height: 100dvh;
     background: var(--bg);
     border-radius: 0;
-    overflow: visible;
+    overflow: hidden;
     box-shadow: none;
     border: none;
     margin: 0;
     padding: 0;
     box-sizing: border-box;
 }
-
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* HEADER                                                                     */
@@ -102,7 +103,6 @@
     align-items: center;
 }
 
-/* Desktop header overrides */
 .shell-desktop .header-title { font-size: 20px; }
 .shell-desktop .header       { padding: 14px 32px; border-radius: 0; }
 .shell-desktop .back-btn     { font-size: 26px; min-width: 80px; padding: 4px 12px; }
@@ -157,12 +157,14 @@
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* TAB BAR                                                                    */
-/* ════════════════════════════════════════════════���═════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════ */
 .tab-bar {
     display: flex;
     background: var(--surface);
     border-bottom: 2px solid var(--border);
     flex-shrink: 0;
+    /* Prevent tab bar from collapsing height calculations */
+    min-height: 44px;
     padding: 0 8px;
     gap: 4px;
 }
@@ -193,7 +195,6 @@
     background: var(--selected-bg);
 }
 
-/* Desktop tab overrides */
 .shell-desktop .tab-bar {
     padding: 0 32px;
     background: var(--surface);
@@ -204,7 +205,7 @@
     font-size: 14px;
 }
 
-/* ═════════════════════════════════════════════════════════════════════���════ */
+/* ══════════════════════════════════════════════════════════════════════════ */
 /* SEARCH BAR                                                                 */
 /* ══════════════════════════════════════════════════════════════════════════ */
 .search-wrap {
@@ -214,15 +215,67 @@
     flex-shrink: 0;
 }
 
-.shell-desktop .search-wrap {
-    padding: 14px 32px;
+.shell-desktop .search-wrap { padding: 14px 32px; }
+.shell-desktop .search-bar  { padding: 9px 14px; font-size: 14px; }
+.shell-desktop .search-input { font-size: 14px; }
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* NEED BY DATE                                                              */
+/* ══════════════════════════════════════════════════════════════════════════ */
+.needby-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
 }
-.shell-desktop .search-bar {
-    padding: 9px 14px;
-    font-size: 14px;
+
+.needby-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    white-space: nowrap;
 }
-.shell-desktop .search-input {
-    font-size: 14px;
+
+.needby-input {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--text);
+    background: #f8f8f8;
+}
+
+.needby-input:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px rgba(1,118,211,0.15);
+}
+
+.pr-info-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+
+.pr-info {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--brand-dark);
+    background: #e8f4fd;
+    border: 1px solid #b3d4f5;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    margin: 0;
+    text-align: center;
+    max-width: 100%;
 }
 
 .search-bar {
@@ -269,27 +322,31 @@
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* PRODUCT LIST                                                               */
 /* ══════════════════════════════════════════════════════════════════════════ */
-
-/* Mobile — single column, scrollable */
 .product-list {
-    flex: 1;
+    /* Make the list the sole scrollable area within the shell */
+    flex: 1 1 auto;
+    min-height: 0; /* critical for flex children to allow scrolling */
     overflow-y: auto;
-    padding-bottom: 80px;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    /* Keep last rows visible above fixed bottom bar */
+    padding-bottom: 96px;
 }
 
-/* Desktop — responsive grid */
 .product-list-desktop {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    padding: 16px 20px 100px;
+    padding: 16px 20px 120px; /* add extra bottom padding to clear sticky/fixed bar */
     gap: 12px;
     align-content: start;
     background: var(--bg);
     width: 100%;
     box-sizing: border-box;
+    min-height: 0;
+    overflow-y: auto; /* ensure desktop grid also scrolls within layout */
 }
 
-/* ── Product Row — BASE ─────────────────────────────────────────────────── */
+/* ── Product Row ─────────────────────────────────────────────────────────── */
 .product-row {
     display: flex;
     align-items: center;
@@ -301,6 +358,7 @@
     border-left: 3px solid transparent;
     cursor: pointer;
     user-select: none;
+    gap: 10px;
 }
 
 .product-row.selected {
@@ -308,7 +366,6 @@
     border-left: 3px solid var(--selected-border);
 }
 
-/* Desktop row — card style */
 .product-list-desktop .product-row {
     border: 1px solid var(--border);
     border-left: 3px solid transparent;
@@ -352,52 +409,123 @@
     color: var(--muted);
 }
 
-/* Desktop: slightly larger text */
 .shell-desktop .product-name { font-size: 13px; }
 .shell-desktop .product-meta { font-size: 12px; }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-/* DEFAULT QUANTITY BADGE — from DTVSCM_Resource_Product__c                  */
-/* Shown below the product meta line in each product row                     */
+/* UNSCHEDULED QTY CONTROLS                                                  */
 /* ══════════════════════════════════════════════════════════════════════════ */
-.default-qty-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin-top: 4px;
-    padding: 2px 8px;
-    background: #e8f4fd;
-    color: var(--brand);
-    border: 1px solid #b3d4f5;
-    border-radius: 12px;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    width: fit-content;
+.unscheduled-row {
+    border-left: 3px solid transparent;
 }
 
-/* When row is selected, make badge slightly more prominent */
-.product-row.selected .default-qty-badge {
-    background: #cce5ff;
+.qty-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.qty-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.qty-btn:hover {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px rgba(1,118,211,0.12);
+}
+
+.qty-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.qty-input {
+    width: 68px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 13px;
+    text-align: center;
+    background: #fff;
+    color: var(--text);
+}
+
+.qty-input:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px rgba(1,118,211,0.15);
+}
+
+.qty-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: #f0f0f0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* QTY BADGE — Default Quantity from DTVSCM_Resource_Product__c              */
+/* ══════════════════════════════════════════════════════════════════════════ */
+.qty-badge-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    min-width: 44px;
+    padding: 4px 8px;
+    background: #f0f7ff;
+    border: 1px solid #d0e3f7;
+    border-radius: 8px;
+    gap: 1px;
+    margin-right: 6px;
+}
+
+.qty-label {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.qty-value {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--brand);
+    line-height: 1.1;
+}
+
+/* When row is selected — make qty badge pop more */
+.product-row.selected .qty-badge-wrap {
+    background: #dbeeff;
     border-color: var(--brand);
 }
 
-/* No default qty — subtle muted text */
-.default-qty-none {
-    display: inline-block;
-    margin-top: 3px;
-    font-size: 10px;
-    color: #b0adab;
-    font-style: italic;
+.product-row.selected .qty-value {
+    color: var(--brand-dark);
 }
 
-/* Desktop: slightly larger badges */
-.shell-desktop .default-qty-badge {
-    font-size: 11px;
-    padding: 3px 10px;
+/* Desktop: slightly larger */
+.shell-desktop .qty-badge-wrap {
+    min-width: 50px;
+    padding: 5px 10px;
 }
-.shell-desktop .default-qty-none {
-    font-size: 11px;
+.shell-desktop .qty-value {
+    font-size: 18px;
 }
 
 /* ── Select Indicator ────────────────────────────────────────────────────── */
@@ -409,7 +537,6 @@
     justify-content: center;
 }
 
-/* Empty circle — not yet selected */
 .empty-circle {
     width: 22px;
     height: 22px;
@@ -423,7 +550,6 @@
     border-color: var(--brand);
 }
 
-/* Check circle — selected */
 .check-circle {
     width: 22px;
     height: 22px;
@@ -443,7 +569,6 @@
 }
 
 .check-icon { --lwc-colorTextIconDefault: #ffffff; }
-
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* SELECTION SUMMARY                                                          */
@@ -475,7 +600,6 @@
     border-top: 1px solid var(--border);
 }
 
-/* Mobile — fixed to bottom */
 .bottom-bar-mobile {
     position: fixed;
     bottom: 0;
@@ -483,12 +607,11 @@
     right: 0;
     max-width: 480px;
     margin: 0 auto;
-    padding: 10px 16px;
+    padding: 12px 16px;
     z-index: 100;
     box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
 }
 
-/* Desktop — sticky */
 .bottom-bar-desktop {
     position: sticky;
     bottom: 0;
@@ -500,7 +623,6 @@
     width: 100%;
 }
 
-/* Desktop buttons */
 .bottom-bar-desktop .btn-clear,
 .bottom-bar-desktop .btn-submit {
     flex: 0 0 auto;
@@ -508,7 +630,6 @@
     font-size: 14px;
 }
 
-/* ── Buttons — shared styles ──────────────────────────────────────────────── */
 .btn-clear,
 .btn-submit {
     flex: 1;
@@ -561,7 +682,6 @@
 .empty-icon        { font-size: 44px; }
 .empty-title       { font-size: 16px; font-weight: 700; color: var(--text); margin: 0; }
 
-/* ── Error Banner ─────────────────────────────────────────────────────────── */
 .err-banner {
     background: #fde8e8;
     border-bottom: 1px solid #f5a9a9;
@@ -572,25 +692,22 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-/* MEDIA QUERY FALLBACK                                                       */
+/* MEDIA QUERIES                                                              */
 /* ══════════════════════════════════════════════════════════════════════════ */
-/* 3 cols on wide screens */
 @media (min-width: 1200px) {
     .product-list-desktop {
         grid-template-columns: repeat(3, 1fr);
     }
 }
-/* 2 cols on medium screens */
 @media (max-width: 1199px) and (min-width: 769px) {
     .product-list-desktop {
         grid-template-columns: repeat(2, 1fr);
     }
 }
-/* 1 col on small screens */
 @media (max-width: 768px) {
     .product-list-desktop {
         grid-template-columns: 1fr;
-        padding: 12px 16px 100px;
+        padding: 12px 16px 120px; /* extra bottom space on small screens */
     }
     .bottom-bar-desktop {
         justify-content: stretch;
