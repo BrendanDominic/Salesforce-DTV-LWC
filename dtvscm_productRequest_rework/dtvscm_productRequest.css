@@ -28,7 +28,9 @@
 }
 
 .shell-mobile {
-    height: 100vh;
+    /* Use dynamic viewport to avoid mobile browser UI shrinking the viewport */
+    height: 100dvh;
+    max-height: 100dvh;
     overflow: hidden;
     max-width: 480px;
     margin: 0 auto;
@@ -36,10 +38,12 @@
 
 .shell-desktop {
     width: 100%;
-    min-height: 100vh;
+    /* Ensure full viewport height and allow inner flex child to scroll */
+    min-height: 100dvh;
+    max-height: 100dvh;
     background: var(--bg);
     border-radius: 0;
-    overflow: visible;
+    overflow: hidden;
     box-shadow: none;
     border: none;
     margin: 0;
@@ -159,6 +163,8 @@
     background: var(--surface);
     border-bottom: 2px solid var(--border);
     flex-shrink: 0;
+    /* Prevent tab bar from collapsing height calculations */
+    min-height: 44px;
     padding: 0 8px;
     gap: 4px;
 }
@@ -213,6 +219,65 @@
 .shell-desktop .search-bar  { padding: 9px 14px; font-size: 14px; }
 .shell-desktop .search-input { font-size: 14px; }
 
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* NEED BY DATE                                                              */
+/* ══════════════════════════════════════════════════════════════════════════ */
+.needby-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+}
+
+.needby-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.needby-input {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--text);
+    background: #f8f8f8;
+}
+
+.needby-input:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px rgba(1,118,211,0.15);
+}
+
+.pr-info-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+
+.pr-info {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--brand-dark);
+    background: #e8f4fd;
+    border: 1px solid #b3d4f5;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    margin: 0;
+    text-align: center;
+    max-width: 100%;
+}
+
 .search-bar {
     display: flex;
     align-items: center;
@@ -258,20 +323,27 @@
 /* PRODUCT LIST                                                               */
 /* ══════════════════════════════════════════════════════════════════════════ */
 .product-list {
-    flex: 1;
+    /* Make the list the sole scrollable area within the shell */
+    flex: 1 1 auto;
+    min-height: 0; /* critical for flex children to allow scrolling */
     overflow-y: auto;
-    padding-bottom: 80px;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    /* Keep last rows visible above fixed bottom bar */
+    padding-bottom: 96px;
 }
 
 .product-list-desktop {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    padding: 16px 20px 100px;
+    padding: 16px 20px 120px; /* add extra bottom padding to clear sticky/fixed bar */
     gap: 12px;
     align-content: start;
     background: var(--bg);
     width: 100%;
     box-sizing: border-box;
+    min-height: 0;
+    overflow-y: auto; /* ensure desktop grid also scrolls within layout */
 }
 
 /* ── Product Row ─────────────────────────────────────────────────────────── */
@@ -339,6 +411,70 @@
 
 .shell-desktop .product-name { font-size: 13px; }
 .shell-desktop .product-meta { font-size: 12px; }
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* UNSCHEDULED QTY CONTROLS                                                  */
+/* ══════════════════════════════════════════════════════════════════════════ */
+.unscheduled-row {
+    border-left: 3px solid transparent;
+}
+
+.qty-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.qty-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.qty-btn:hover {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px rgba(1,118,211,0.12);
+}
+
+.qty-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.qty-input {
+    width: 68px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 13px;
+    text-align: center;
+    background: #fff;
+    color: var(--text);
+}
+
+.qty-input:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px rgba(1,118,211,0.15);
+}
+
+.qty-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: #f0f0f0;
+}
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* QTY BADGE — Default Quantity from DTVSCM_Resource_Product__c              */
@@ -471,7 +607,7 @@
     right: 0;
     max-width: 480px;
     margin: 0 auto;
-    padding: 10px 16px;
+    padding: 12px 16px;
     z-index: 100;
     box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
 }
@@ -571,7 +707,7 @@
 @media (max-width: 768px) {
     .product-list-desktop {
         grid-template-columns: 1fr;
-        padding: 12px 16px 100px;
+        padding: 12px 16px 120px; /* extra bottom space on small screens */
     }
     .bottom-bar-desktop {
         justify-content: stretch;
