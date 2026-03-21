@@ -12,6 +12,7 @@ import PR_STATUS      from '@salesforce/schema/ProductRequest.Status';
 import PR_DESCRIPTION from '@salesforce/schema/ProductRequest.Description';
 import PR_NEED_BY_DATE from '@salesforce/schema/ProductRequest.NeedByDate';
 import PR_ID          from '@salesforce/schema/ProductRequest.Id';
+import PR_SHIPMENT_TYPE from '@salesforce/schema/ProductRequest.ShipmentType';
 
 // ProductRequestLineItem schema tokens
 import PRLI_OBJECT        from '@salesforce/schema/ProductRequestLineItem';
@@ -19,6 +20,12 @@ import PRLI_PR_ID         from '@salesforce/schema/ProductRequestLineItem.Parent
 import PRLI_PRODUCT2_ID   from '@salesforce/schema/ProductRequestLineItem.Product2Id';
 import PRLI_QTY_REQUESTED from '@salesforce/schema/ProductRequestLineItem.QuantityRequested';
 import PRLI_STATUS        from '@salesforce/schema/ProductRequestLineItem.Status';
+
+// Resource Product schema tokens — used to update Default Quantity on Save
+// DTVSCM_Default_Quantity__c is updated ONLY after user clicks Save
+import RP_OBJECT     from '@salesforce/schema/DTVSCM_Resource_Product__c';
+import RP_ID         from '@salesforce/schema/DTVSCM_Resource_Product__c.Id';
+import RP_DEFAULT_QTY from '@salesforce/schema/DTVSCM_Resource_Product__c.DTVSCM_Default_Quantity__c';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GraphQL QUERY 1 — ServiceResource for running user
@@ -45,11 +52,11 @@ const GET_SERVICE_RESOURCE_QUERY = gql`
  * Metadata is used only for writes; filtering happens client-side.
  */
 const GET_DRAFT_PR_QUERY = gql`
-    query GetDraftPR($userId: ID) {
+    query GetDraftPR($userId: ID, $shipmentType: Picklist) {
         uiapi {
             query {
                 ProductRequest(
-                    where: { CreatedById: { eq: $userId } }
+                    where: { CreatedById: { eq: $userId }, ShipmentType: { eq: $shipmentType } }
                     orderBy: { CreatedDate: { order: DESC } }
                     first: 1
                 ) {
@@ -169,10 +176,73 @@ export default class Dtvscm_productRequest extends LightningElement {
     get scheduledTabClass()   { return this.activeTab === 'scheduled'   ? 'tab-btn active' : 'tab-btn'; }
     get unscheduledTabClass() { return this.activeTab === 'unscheduled' ? 'tab-btn active' : 'tab-btn'; }
 
-    handleTabSwitch(event) { this.activeTab = event.currentTarget.dataset.tab; }
+    handleTabSwitch(event) {
+        const nextTab = event.currentTarget.dataset.tab;
+        if (nextTab === this.activeTab) return;
+        this._storeActiveTabState();
+        // Discard any unsaved qty changes when leaving the Unscheduled tab.
+        // Per requirement: changes NOT saved do NOT persist.
+        if (this.isUnscheduledTab) {
+            this._pendingQtyChanges = new Map();
+        }
+        this.activeTab = nextTab;
+        // Reset _prLoaded so the wire result for the new tab
+        // is processed fresh, not skipped as already-loaded.
+        this._prLoaded = false;
+        this._applyActiveTabState();
+    }
+
+    _shipmentTypeForTab(tab) {
+        return tab === 'scheduled' ? 'Scheduled' : 'Unscheduled';
+    }
+
+    _storeActiveTabState() {
+        if (this.isScheduledTab) {
+            this.activeScheduledPrId = this.activePrId;
+            this.activeScheduledPrStatus = this.activePrStatus;
+            this.activeScheduledPrNumber = this.activePrNumber;
+            this.scheduledNeedByDate = this.needByDate;
+        } else {
+            this.activeUnscheduledPrId = this.activePrId;
+            this.activeUnscheduledPrStatus = this.activePrStatus;
+            this.activeUnscheduledPrNumber = this.activePrNumber;
+            this.unscheduledNeedByDate = this.needByDate;
+        }
+    }
+
+    _applyActiveTabState() {
+        if (this.isScheduledTab) {
+            this.activePrId = this.activeScheduledPrId || null;
+            this.activePrStatus = this.activeScheduledPrStatus || null;
+            this.activePrNumber = this.activeScheduledPrNumber || '';
+            this.needByDate = this.scheduledNeedByDate || '';
+        } else {
+            this.activePrId = this.activeUnscheduledPrId || null;
+            this.activePrStatus = this.activeUnscheduledPrStatus || null;
+            this.activePrNumber = this.activeUnscheduledPrNumber || '';
+            this.needByDate = this.unscheduledNeedByDate || '';
+        }
+
+        this.prliMap = new Map();
+        this.prliQtyMap = new Map();
+        this.prliLoaded = false;
+
+        this._applySelectionsFromPrliMap();
+        // Skip _applyQuantitiesFromPrliMap during save — prliMap was just reset to
+        // new Map() above, which would wipe all unscheduledProducts to qty=0,selected=false.
+        // STEP 4 in handleSave explicitly calls _applyQuantitiesFromPrliMap() after the
+        // wire settles with fresh server data, restoring correct state.
+        if (!this.isSaving) {
+            this._applyQuantitiesFromPrliMap();
+        }
+    }
 
     // ── Back ──────────────────────────────────────────────────────────────
-    handleBack() { this.dispatchEvent(new CustomEvent('back')); }
+    handleBack() {
+        // Discard any unsaved qty changes on navigation away
+        this._pendingQtyChanges = new Map();
+        this.dispatchEvent(new CustomEvent('back'));
+    }
 
     // ── Search ────────────────────────────────────────────────────────────
     @track searchTerm = '';
@@ -236,12 +306,24 @@ export default class Dtvscm_productRequest extends LightningElement {
     @track hasWireError      = false;
     @track wireErrorMessage  = '';
     @track serviceResourceId = null;
-    _lastCreatedPrId = null;
+
+    @track activeScheduledPrId = null;
+    @track activeUnscheduledPrId = null;
+    @track activeScheduledPrStatus = null;
+    @track activeUnscheduledPrStatus = null;
+    @track activeScheduledPrNumber = '';
+    @track activeUnscheduledPrNumber = '';
+    @track scheduledNeedByDate = '';
+    @track unscheduledNeedByDate = '';
 
     // Internal flags to track which wires have resolved
     _srLoaded  = false;
     _prLoaded  = false;
     _rpLoaded  = false;
+
+    // FIX 2: Cache PR wire result when it fires before config is ready.
+    // Processed in wiredPrConfig once config is available.
+    _pendingPrWireData = null;
 
     // Metadata-driven status config (no hardcoded fallbacks)
     @track config = null;
@@ -274,6 +356,10 @@ export default class Dtvscm_productRequest extends LightningElement {
         );
     }
 
+    get isPrReady() {
+        return this._prLoaded && this._configLoaded;
+    }
+
     // Raw edges stored so we can rebuild product list after SR resolves
     _rpEdgesAll = [];
 
@@ -284,6 +370,18 @@ export default class Dtvscm_productRequest extends LightningElement {
 
     // Unscheduled quantity list (separate from scheduled selection list)
     @track unscheduledProducts = [];
+
+    // ── NEW: Unscheduled-specific state ───────────────────────────────────
+    // Tracks whether Unscheduled PR has been submitted this session.
+    // Unlike Scheduled, submit does NOT lock the form — user can create a new PR.
+    // This flag is reset to false after a successful submit so form unlocks.
+    @track _unscheduledSubmitted = false;
+
+    // Pending qty changes (resourceProductId → new qty).
+    // Populated on +/-/input. Written to Resource Product.DTVSCM_Default_Quantity__c
+    // only on Save. Discarded without Save.
+    _pendingQtyChanges = new Map(); // Map(resourceProductId → newQty)
+    // ─────────────────────────────────────────────────────────────────────
 
     // Cached wire results for refreshGraphQL
     _draftPrWire = null;
@@ -324,9 +422,16 @@ export default class Dtvscm_productRequest extends LightningElement {
     // @wire 2 — Draft ProductRequest for running user
     // ───────────────────────────────────────────────────────────────���─────
     get draftPrVariables() {
-        if (!this.isConfigReady) return undefined;
+        // FIX 1: Do NOT gate on isConfigReady here.
+        // The PR wire must fire as soon as the component loads, independently
+        // of metadata config loading. Both _prLoaded and _configLoaded must
+        // be true before handleSave is allowed to create a new PR (isPrReady).
+        // Gating here caused the wire to be suppressed on first load,
+        // then when config arrived the wire re-fired but _prLoaded was already
+        // flagged true from an earlier partial response → activePrId stayed null.
         return {
-            userId: USER_ID
+            userId: USER_ID,
+            shipmentType: this._shipmentTypeForTab(this.activeTab)
         };
     }
 
@@ -336,10 +441,9 @@ export default class Dtvscm_productRequest extends LightningElement {
         const { data, errors } = value || {};
         if (data === undefined && errors === undefined) return;
 
-        this._prLoaded = true;
-
         if (errors) {
             console.error('❌ Draft PR wire error:', JSON.stringify(errors));
+            this._prLoaded  = true;
             this.activePrId     = null;
             this.activePrStatus = null;
             this._tryFinishLoading();
@@ -347,43 +451,88 @@ export default class Dtvscm_productRequest extends LightningElement {
         }
 
         if (data) {
-            const edges = data?.uiapi?.query?.ProductRequest?.edges || [];
-            console.log('🔍 PR QUERY RESULT:', JSON.stringify(edges));
-            const existingPr = edges.length > 0 ? edges[0]?.node : null;
-
-            if (existingPr) {
-                const defaultStatus = this.statusDefault;
-                const shippedStatus = this.statusShipped;
-                const statusValue = existingPr?.Status?.value || defaultStatus;
-                const needByDateValue = existingPr?.NeedByDate?.value || '';
-
-                if (statusValue === shippedStatus) {
-                    this.activePrId     = null;
-                    this.activePrStatus = defaultStatus;
-                    this.activePrNumber = '';
-                    this.needByDate     = '';
-                    console.log('⚠️ PR is shipped — ignore');
-                } else {
-                    this.activePrId     = existingPr.Id;
-                    this.activePrStatus = statusValue;
-                    this.activePrNumber = existingPr?.ProductRequestNumber?.value || '';
-                    this.needByDate     = needByDateValue;
-                    console.log('✅ Existing Draft PR found:', this.activePrId);
-                }
-            } else {
-                this.activePrId     = null;
-                this.activePrStatus = this.statusDefault;
-                this.activePrNumber = '';
-                this.needByDate     = '';
-                console.log('ℹ️ No existing Draft PR for user.');
+            // FIX 5: If config is not ready yet, cache the wire data and
+            // defer processing. wiredPrConfig will call _processDraftPrData()
+            // once the metadata is loaded. This prevents statusDefault /
+            // statusShipped from throwing before config arrives.
+            if (!this.isConfigReady) {
+                console.log('⏳ PR wire fired before config ready — caching for deferred processing');
+                this._pendingPrWireData = data;
+                // Still mark _prLoaded = false so _tryFinishLoading waits
+                // — will be set true inside _processDraftPrData() below
+                return;
             }
-
-            if (!this.activePrId && this._lastCreatedPrId) {
-                console.log('⚠️ Using fallback PR ID');
-                this.activePrId = this._lastCreatedPrId;
-            }
-            this._tryFinishLoading();
+            this._processDraftPrData(data);
         }
+    }
+
+    // FIX 2 / FIX 5: Central processor for PR wire data.
+    // Called from wiredDraftPR (when config already ready)
+    // OR from wiredPrConfig (when cached data was waiting for config).
+    _processDraftPrData(data) {
+        this._prLoaded = true;
+        this._pendingPrWireData = null; // clear cache
+
+        const edges = data?.uiapi?.query?.ProductRequest?.edges || [];
+        console.log('🔍 PR QUERY RESULT — edges:', edges.length, JSON.stringify(edges));
+        const existingPr = edges.length > 0 ? edges[0]?.node : null;
+
+        const isScheduled = this.isScheduledTab;
+
+        // Helper: write result into the correct tab's state slots
+        const applyTabFields = (nextId, nextStatus, nextNumber, nextNeedByDate) => {
+            if (isScheduled) {
+                this.activeScheduledPrId     = nextId;
+                this.activeScheduledPrStatus = nextStatus;
+                this.activeScheduledPrNumber = nextNumber;
+                this.scheduledNeedByDate     = nextNeedByDate;
+            } else {
+                this.activeUnscheduledPrId     = nextId;
+                this.activeUnscheduledPrStatus = nextStatus;
+                this.activeUnscheduledPrNumber = nextNumber;
+                this.unscheduledNeedByDate     = nextNeedByDate;
+            }
+        };
+
+        if (existingPr) {
+            const shippedStatus   = this.statusShipped;
+            const submitStatus    = this.statusSubmit;
+            const defaultStatus   = this.statusDefault;
+            const statusValue     = existingPr?.Status?.value || defaultStatus;
+            const needByDateValue = existingPr?.NeedByDate?.value || '';
+
+            console.log('PR FOUND:', existingPr?.Id, '|', statusValue, '| tab:', isScheduled ? 'Scheduled' : 'Unscheduled');
+
+            if (statusValue === shippedStatus) {
+                // Shipped → treat as no active PR → user can create a new one
+                applyTabFields(null, defaultStatus, '', '');
+                console.log('⚠️ PR is Shipped — resetting so new PR can be created');
+
+            } else if (!isScheduled && statusValue === submitStatus) {
+                // FIX 1: Unscheduled + Submitted → treat as no active PR.
+                // After user submits an Unscheduled PR, the wire re-fires and
+                // finds the Submitted PR. Without this check, it was restored
+                // into activePrId → blocking new PR creation until Shipped.
+                // Now we reset so the user can immediately create a new PR.
+                applyTabFields(null, defaultStatus, '', '');
+                console.log('⚠️ Unscheduled PR is Submitted — resetting so new PR can be created immediately');
+
+            } else {
+                // Active PR found — set activePrId (the ONLY place this is set from wire)
+                const nextId     = existingPr.Id;
+                const nextNumber = existingPr?.ProductRequestNumber?.value || '';
+                applyTabFields(nextId, statusValue, nextNumber, needByDateValue);
+                console.log('✅ Existing PR loaded:', nextId, '| Status:', statusValue);
+            }
+        } else {
+            // No PR found for this user + shipmentType → start fresh
+            applyTabFields(null, this.statusDefault, '', '');
+            console.log('ℹ️ No existing PR for this user + shipmentType.');
+        }
+
+        // Push tab-slot state into active properties
+        this._applyActiveTabState();
+        this._tryFinishLoading();
     }
 
     get hasActivePrInfo() {
@@ -468,9 +617,14 @@ export default class Dtvscm_productRequest extends LightningElement {
 
             this._applySavedSnapshotIfOffline();
 
-            // Apply saved selections to UI
+            // Apply saved selections to UI.
+            // Skip _applyQuantitiesFromPrliMap while a save is in progress —
+            // the save already calls it explicitly after the wire settles.
+            // Calling it here mid-save would overwrite the user's current selections.
             this._applySelectionsFromPrliMap();
-            this._applyQuantitiesFromPrliMap();
+            if (!this.isSaving) {
+                this._applyQuantitiesFromPrliMap();
+            }
         }
     }
 
@@ -526,9 +680,16 @@ export default class Dtvscm_productRequest extends LightningElement {
         this.allProducts = baseProducts;
 
         // ───────── Unscheduled Logic ─────────
+        // Initial state: qty = defaultQuantity (display value), selected = false.
+        // FIX 2: Do NOT pre-select all products — defaultQuantity is for display only.
+        // Selection happens ONLY when user interacts (+/-/input) or when a saved
+        // PRLI is restored from the server via _applyQuantitiesFromPrliMap().
         this.unscheduledProducts = baseProducts.map(p => ({
             ...p,
-            qty: p.defaultQuantity
+            qty:            0,     // starts at 0 — user must interact to set qty > 0
+            isUserModified: false,
+            selected:       false,
+            rowClass:       'product-row'
         }));
 
         console.log('✅ Products built:', this.allProducts.length);
@@ -541,6 +702,12 @@ export default class Dtvscm_productRequest extends LightningElement {
 
     // ─────────────────────────────────────────────────────────────────────
     // Turn off loading spinner once all 3 main wires have resolved
+    //
+    // FIX 7: _prLoaded is set inside _processDraftPrData which requires
+    // config to be ready. If config loads after the PR wire fires, and
+    // _processDraftPrData processes the data, _prLoaded is set and
+    // _tryFinishLoading is called again from there — so we will always
+    // eventually reach the end state. No change needed to the condition.
     // ─────────────────────────────────────────────────────────────────────
     _tryFinishLoading() {
         if (this._srLoaded && this._prLoaded && this._rpLoaded) {
@@ -575,16 +742,26 @@ export default class Dtvscm_productRequest extends LightningElement {
 
         this.unscheduledProducts = this.unscheduledProducts.map(p => {
             const hasPrli = p.product2Id && this.prliMap.has(p.product2Id);
-            const qty = hasPrli && this.prliQtyMap.has(p.product2Id)
-                ? this.prliQtyMap.get(p.product2Id)
-                : p.defaultQuantity;
-            const nextQty = Number(qty) || 0;
-            const nextSelected = nextQty > 0 && hasPrli;
+
+            // Saved PRLI exists → restore saved qty from server.
+            // No PRLI → qty = 0 so product is not auto-included in sync.
+            const qty = hasPrli
+                ? (this.prliQtyMap.get(p.product2Id) || 0)
+                : 0;
+            const nextQty  = Number(qty) || 0;
+
+            // FIX 3: selected = hasPrli AND qty > 0.
+            // Products WITHOUT a saved PRLI: selected = false (defaultQuantity is display only).
+            // Products WITH a saved PRLI: selected = savedQty > 0 (user previously saved this).
+            // This prevents auto-selection of all products on every _refreshPrData call.
+            const nextSelected = hasPrli && nextQty > 0;
+
             return {
                 ...p,
-                selected: nextSelected,
-                qty: nextQty,
-                rowClass: nextSelected ? 'product-row selected' : 'product-row'
+                qty:            nextQty,
+                isUserModified: nextSelected, // true = was previously saved → treat as user action
+                selected:       nextSelected,
+                rowClass:       nextSelected ? 'product-row selected' : 'product-row'
             };
         });
 
@@ -622,7 +799,18 @@ export default class Dtvscm_productRequest extends LightningElement {
     get hasSelections()     { return this.selectedProducts.length > 0; }
     get selectedCount()     { return this.selectedProducts.length; }
     get isActionsDisabled() { return this.isSubmitted || !this.hasSelections; }
-    get isSubmitted()       { return this.isConfigReady && this.activePrStatus === this.statusSubmit; }
+
+    // isSubmitted drives UI lock:
+    //   Scheduled: locked when status = statusSubmit
+    //   Unscheduled: NEVER locked — submit clears activePrId so user can
+    //   immediately start a new Unscheduled PR without any restriction
+    get isSubmitted() {
+        if (this.isUnscheduledTab) {
+            // Unscheduled tab is never locked — see handleSubmit for reset logic
+            return false;
+        }
+        return this.isConfigReady && this.activePrStatus === this.statusSubmit;
+    }
 
     // ───────── Unscheduled Logic ─────────
     // Unscheduled Tab Logic (+ / - quantity handling)
@@ -639,16 +827,26 @@ export default class Dtvscm_productRequest extends LightningElement {
 
     handleUnscheduledToggle(event) {
         if (this.isSubmitted) return;
+
         const productId = event.currentTarget.dataset.productid;
+
         this.unscheduledProducts = this.unscheduledProducts.map(p => {
             if (p.id !== productId) return p;
-            const nowSelected = !p.selected;
-            const nextQty = nowSelected ? Number(p.defaultQuantity || 0) : 0;
+
+            const nextSelected = !p.selected;
+
+            // On deselect: qty = 0 so the product is excluded from sync → PRLI deleted.
+            // On select: restore qty to defaultQuantity as the starting value.
+            const nextQty = nextSelected
+                ? (p.qty > 0 ? p.qty : p.defaultQuantity)
+                : 0; // qty=0 ensures this product goes into toDelete on next Save
+
             return {
                 ...p,
-                selected: nowSelected,
-                qty: nextQty,
-                rowClass: nowSelected ? 'product-row selected' : 'product-row'
+                qty:            nextQty,
+                selected:       nextSelected,
+                isUserModified: true,
+                rowClass:       nextSelected ? 'product-row selected' : 'product-row'
             };
         });
     }
@@ -657,20 +855,26 @@ export default class Dtvscm_productRequest extends LightningElement {
         event.stopPropagation();
         if (this.isSubmitted) return;
         const productId = event.currentTarget.dataset.productid;
-        const rawValue = event.target.value;
-        const nextValue = Math.max(0, Number(rawValue || 0));
+        const rawValue  = event.target.value;
+        const nextValue = Number(rawValue);
+
+        if (isNaN(nextValue) || nextValue < 0) return;
 
         this.unscheduledProducts = this.unscheduledProducts.map(p => {
             if (p.id !== productId) return p;
+            // Mark as user-modified — now this product can be selected
+            const nextModified = true;
             const nextSelected = nextValue > 0;
+            // Track pending qty change — written to Resource Product on Save only
+            this._pendingQtyChanges.set(p.id, nextValue);
             return {
                 ...p,
-                qty: nextValue,
-                selected: nextSelected,
-                rowClass: nextSelected ? 'product-row selected' : 'product-row'
+                qty:            nextValue,
+                isUserModified: nextModified,
+                selected:       nextSelected,
+                rowClass:       nextSelected ? 'product-row selected' : 'product-row'
             };
         });
-
     }
 
     handleQtyClick(event) {
@@ -678,31 +882,43 @@ export default class Dtvscm_productRequest extends LightningElement {
     }
 
     handleQtyIncrement(event) {
+        event.stopPropagation();
         if (this.isSubmitted) return;
         const productId = event.currentTarget.dataset.productid;
         this.unscheduledProducts = this.unscheduledProducts.map(p => {
             if (p.id !== productId) return p;
-            const nextValue = Number(p.qty || 0) + 1;
+            // Increment from current qty — works even if product not yet selected.
+            // selected = qty > 0 (always true after increment since min result is 1).
+            const nextValue    = Number(p.qty || 0) + 1;
+            const nextSelected = nextValue > 0;
+            this._pendingQtyChanges.set(p.id, nextValue);
             return {
                 ...p,
-                qty: nextValue,
-                selected: nextValue > 0,
-                rowClass: nextValue > 0 ? 'product-row selected' : 'product-row'
+                qty:            nextValue,
+                isUserModified: true,
+                selected:       nextSelected,
+                rowClass:       nextSelected ? 'product-row selected' : 'product-row'
             };
         });
     }
 
     handleQtyDecrement(event) {
+        event.stopPropagation();
         if (this.isSubmitted) return;
         const productId = event.currentTarget.dataset.productid;
         this.unscheduledProducts = this.unscheduledProducts.map(p => {
             if (p.id !== productId) return p;
-            const next = Math.max(0, Number(p.qty || 0) - 1);
+            // Decrement from current qty — selected = qty > 0.
+            // When qty reaches 0 → selected becomes false automatically.
+            const next         = Math.max(0, Number(p.qty || 0) - 1);
+            const nextSelected = next > 0;
+            this._pendingQtyChanges.set(p.id, next);
             return {
                 ...p,
-                qty: next,
-                selected: next > 0,
-                rowClass: next > 0 ? 'product-row selected' : 'product-row'
+                qty:            next,
+                isUserModified: true,
+                selected:       nextSelected,
+                rowClass:       nextSelected ? 'product-row selected' : 'product-row'
             };
         });
     }
@@ -710,7 +926,12 @@ export default class Dtvscm_productRequest extends LightningElement {
 
     // ───────── Shared Logic ─────────
     handleNeedByDateChange(event) {
-        this.needByDate = event.target.value;
+        const value = event.target.value;
+
+        // Convert YYYY-MM-DD → ISO format
+        this.needByDate = value
+            ? new Date(value + 'T00:00:00.000Z').toISOString()
+            : null;
     }
 
     // ── Clear ─────────────────────────────────────────────────────────────
@@ -778,15 +999,49 @@ export default class Dtvscm_productRequest extends LightningElement {
             }));
             return;
         }
+        if (!this.isPrReady) {
+            this.dispatchEvent(new ShowToastEvent({
+                title: 'Please wait',
+                message: 'Loading existing Product Request...',
+                variant: 'info'
+            }));
+            return;
+        }
+
+        // ── Unscheduled: zero-qty guard ──────────────────────────────────
+        // Block Save / Submit if no product has qty > 0 in Unscheduled tab.
+        // This check runs before any PR or PRLI creation attempt.
+        if (this.isUnscheduledTab) {
+            // Guard: allow save if there is anything to do.
+            // hasProductsToSave: user has selected products with qty > 0 (create/update)
+            // hasPrliToDelete:   existing PRLIs exist whose products are now deselected (delete)
+            //
+            // Block ONLY if both are false — i.e. nothing selected AND no PRLIs to clean up.
+            // This fixes the deselect-not-removing bug: previously the guard blocked save
+            // when all products were deselected, preventing deleteRecord from ever running.
+            const hasProductsToSave = this.unscheduledProducts.some(
+                p => p.product2Id && p.selected && Number(p.qty || 0) > 0
+            );
+            const hasPrliToDelete = this.prliMap.size > 0;
+            if (!hasProductsToSave && !hasPrliToDelete) {
+                this.dispatchEvent(new ShowToastEvent({
+                    title: 'Nothing to Save',
+                    message: 'Please select at least 1 product with a quantity.',
+                    variant: 'warning'
+                }));
+                return;
+            }
+        }
 
         this.isSaving = true;
 
         try {
             // ── STEP 1: Ensure ProductRequest exists ──────────────────────
-            if (!this.activePrId) {
+            if (!this.activePrId && this._prLoaded) {
                 const prFields = {};
                 prFields[PR_STATUS.fieldApiName]      = this.statusDefault;
                 prFields[PR_DESCRIPTION.fieldApiName] = `Product Request — ${new Date().toLocaleDateString()}`;
+                prFields[PR_SHIPMENT_TYPE.fieldApiName] = this._shipmentTypeForTab(this.activeTab);
                 if (this.isUnscheduledTab && this.needByDate) {
                     prFields[PR_NEED_BY_DATE.fieldApiName] = this.needByDate;
                 }
@@ -797,9 +1052,16 @@ export default class Dtvscm_productRequest extends LightningElement {
                     fields: prFields
                 });
                 this.activePrId     = prResult.id;
-                this._lastCreatedPrId = prResult.id;
                 this.activePrStatus = this.statusDefault;
                 console.log('✅ ProductRequest created:', this.activePrId);
+                this._storeActiveTabState();
+                // DO NOT call _refreshPrData() here.
+                // Doing so fires wiredDraftPR → _processDraftPrData → _applyActiveTabState
+                // which resets prliMap=new Map() and calls _applyQuantitiesFromPrliMap()
+                // setting ALL unscheduledProducts to qty=0, selected=false — wiping the
+                // user's selection BEFORE _syncUnscheduledSelections runs.
+                // The PRLI wire fires reactively when activePrId changes; STEP 4 handles
+                // the final refresh after sync completes.
             } else if (this.isUnscheduledTab && this.needByDate !== undefined) {
                 const prUpdateFields = {};
                 prUpdateFields[PR_ID.fieldApiName] = this.activePrId;
@@ -829,6 +1091,13 @@ export default class Dtvscm_productRequest extends LightningElement {
                 updateErrors = result.updateErrors;
                 deleteErrors = result.deleteErrors;
                 delta = result.delta;
+
+                // After PRLI sync succeeds, write pending qty changes to
+                // Resource Product.DTVSCM_Default_Quantity__c.
+                // This is only triggered on Save — unsaved changes are discarded.
+                if (createErrors.length === 0 && updateErrors.length === 0 && deleteErrors.length === 0) {
+                    await this._flushPendingQtyChanges();
+                }
             }
 
             const hasSaveErrors = createErrors.length > 0 || updateErrors.length > 0 || deleteErrors.length > 0;
@@ -836,9 +1105,12 @@ export default class Dtvscm_productRequest extends LightningElement {
                 this._saveSavedSnapshot();
             }
 
-            // ── STEP 4: Refresh PR + PRLI wires so UI reflects saved state
+            // ── STEP 4: Refresh PR + PRLI wires so UI reflects saved state.
+            // isSaving=true blocks wiredPrli from calling _applyQuantitiesFromPrliMap
+            // mid-refresh. After the wire settles, we call it explicitly here
+            // with the updated prliMap so deselected products (qty=0) are not restored.
             await this._refreshPrData();
-            await new Promise(resolve => setTimeout(resolve, 300));
+            await new Promise(resolve => setTimeout(resolve, 600));
 
             this._applySavedSnapshotIfOffline();
             this._applySelectionsFromPrliMap();
@@ -944,8 +1216,11 @@ export default class Dtvscm_productRequest extends LightningElement {
         const existingQty = this.prliQtyMap;   // Map(Product2Id → Quantity)
         const existingIds = new Set(existingMap.keys());
 
+        // selected=true AND qty>0 are both required for PRLI creation.
+        // selected=true: user explicitly chose this product (toggle/+/-/input).
+        // qty>0: ensures deselected products (qty reset to 0) go to toDelete not toCreate.
         const selected = this.unscheduledProducts
-            .filter(p => p.product2Id && Number(p.qty || 0) > 0)
+            .filter(p => p.product2Id && p.selected && Number(p.qty || 0) > 0)
             .map(p => ({ ...p, qty: Math.max(0, Number(p.qty || 0)) }));
 
         const selectedIds = new Set(selected.map(p => p.product2Id));
@@ -1027,6 +1302,54 @@ export default class Dtvscm_productRequest extends LightningElement {
         };
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // _flushPendingQtyChanges (Unscheduled only)
+    //
+    // Writes user qty changes to DTVSCM_Resource_Product__c.DTVSCM_Default_Quantity__c
+    // ONLY after Save is clicked and PRLI sync succeeded.
+    //
+    // _pendingQtyChanges: Map(resourceProductId → newQty)
+    //   Populated by handleQtyInput / handleQtyIncrement / handleQtyDecrement
+    //   Cleared here after successful write — or on discard (tab switch / back)
+    //
+    // If user changed qty but did NOT click Save → changes are discarded
+    // because _pendingQtyChanges is never flushed.
+    // ─────────────────────────────────────────────────────────────────────
+    async _flushPendingQtyChanges() {
+        if (this._pendingQtyChanges.size === 0) return;
+
+        const flushErrors = [];
+
+        for (const [rpId, newQty] of this._pendingQtyChanges.entries()) {
+            try {
+                const fields = {};
+                fields[RP_ID.fieldApiName]          = rpId;
+                fields[RP_DEFAULT_QTY.fieldApiName] = newQty;
+
+                console.log(`✏️ Updating ResourceProduct default qty: ${rpId} → ${newQty}`);
+                await updateRecord({ fields });
+                console.log(`✅ ResourceProduct qty updated: ${rpId}`);
+            } catch (e) {
+                console.error(`❌ ResourceProduct qty update failed: ${rpId}`, e);
+                flushErrors.push(`ResourceProduct ${rpId}: ${e?.body?.message || e.message}`);
+            }
+        }
+
+        // Always clear the pending map after flush attempt
+        // (even on partial failure — prevents re-applying stale changes)
+        this._pendingQtyChanges = new Map();
+
+        if (flushErrors.length > 0) {
+            this.dispatchEvent(new ShowToastEvent({
+                title: 'Default Qty Update Issues',
+                message: flushErrors.join(' | '),
+                variant: 'warning', mode: 'sticky'
+            }));
+        } else {
+            console.log('✅ All pending qty changes flushed to Resource Products');
+        }
+    }
+
     async _refreshPrData() {
         const refreshes = [];
         if (this._draftPrWire) refreshes.push(refreshGraphQL(this._draftPrWire));
@@ -1042,10 +1365,19 @@ export default class Dtvscm_productRequest extends LightningElement {
 
     // ─────────────────────────────────────────────────────────────────────
     // SUBMIT — save delta first, then update PR.Status = 'Submitted'
+    //
+    // SCHEDULED tab:
+    //   - Standard flow: Save → Submit → lock form (existing behavior)
+    //
+    // UNSCHEDULED tab:
+    //   - Save → Submit → reset activePrId to null → form UNLOCKS
+    //   - User can immediately start a new Unscheduled PR after submitting
+    //   - isSubmitted getter always returns false for Unscheduled tab
     // ─────────────────────────────────────────────────────────────────────
     async handleSubmit() {
         if (!this._ensureConfigReady()) return;
         if (this.isSubmitted) {
+            // Only reaches here for Scheduled tab (isSubmitted is always false for Unscheduled)
             this.dispatchEvent(new ShowToastEvent({
                 title: 'Already Submitted',
                 message: 'This Product Request is already submitted.',
@@ -1054,7 +1386,7 @@ export default class Dtvscm_productRequest extends LightningElement {
             return;
         }
 
-        // Save first to sync PRLIs
+        // Save first to sync PRLIs (also runs zero-qty guard for Unscheduled)
         await this.handleSave();
 
         if (!this.activePrId) {
@@ -1073,20 +1405,67 @@ export default class Dtvscm_productRequest extends LightningElement {
 
             console.log('⚡ Submitting PR:', this.activePrId);
             await updateRecord({ fields });
-            this.activePrStatus = this.statusSubmit;
             console.log('✅ PR submitted');
 
-            // Lock UI
-            this.allProducts = this.allProducts.map(p => ({
-                ...p,
-                rowClass: p.selected ? 'product-row selected' : 'product-row'
-            }));
+            if (this.isUnscheduledTab) {
+                // ── UNSCHEDULED: reset state so user can create a new PR ──────
+                // Do NOT lock the form — isSubmitted always returns false here.
+                // Reset activePrId + tab-cached slots → next Save creates a fresh PR.
+                // Reset all qty values back to defaultQuantity so the list is clean.
+                const submittedId = this.activePrId;
+                this.activePrId              = null;
+                this.activePrStatus          = null;
+                this.activePrNumber          = '';
+                this.activeUnscheduledPrId     = null;
+                this.activeUnscheduledPrStatus = null;
+                this.activeUnscheduledPrNumber = '';
+                this.unscheduledNeedByDate     = '';
+                this.needByDate               = '';
+                this.prliMap                  = new Map();
+                this.prliQtyMap               = new Map();
+                this._pendingQtyChanges       = new Map();
 
-            this.dispatchEvent(new ShowToastEvent({
-                title: '✅ Submitted',
-                message: 'Product Request submitted successfully.',
-                variant: 'success'
-            }));
+                // Reset to clean slate — matches initial build state exactly.
+                // qty = 0: same as initial build; user must interact to select.
+                // defaultQuantity is not used here to avoid accidental auto-save.
+                this.unscheduledProducts = this.unscheduledProducts.map(p => ({
+                    ...p,
+                    qty:            0,
+                    isUserModified: false,
+                    selected:       false,
+                    rowClass:       'product-row'
+                }));
+
+                // Force wire to re-evaluate. With FIX 1 in _processDraftPrData,
+                // the now-Submitted PR will be ignored → activePrId stays null
+                // → user can immediately create a new Unscheduled PR.
+                this._prLoaded = false;
+                await this._refreshPrData();
+
+                console.log('✅ Unscheduled PR submitted:', submittedId, '— form reset for new PR');
+
+                this.dispatchEvent(new ShowToastEvent({
+                    title: '✅ Submitted',
+                    message: 'Product Request submitted. You can now create a new Unscheduled request.',
+                    variant: 'success'
+                }));
+
+            } else {
+                // ── SCHEDULED: lock UI as before ──────────────────────────────
+                this.activePrStatus = this.statusSubmit;
+
+                this.allProducts = this.allProducts.map(p => ({
+                    ...p,
+                    rowClass: p.selected ? 'product-row selected' : 'product-row'
+                }));
+
+                this.dispatchEvent(new ShowToastEvent({
+                    title: '✅ Submitted',
+                    message: 'Product Request submitted successfully.',
+                    variant: 'success'
+                }));
+            }
+
         } catch (e) {
             console.error('❌ Submit failed:', e);
             this.dispatchEvent(new ShowToastEvent({
@@ -1219,8 +1598,15 @@ export default class Dtvscm_productRequest extends LightningElement {
             this.config = map;
         } finally {
             this._configLoaded = true;
-            // Ensure the PR wire re-evaluates now that config is ready
-            if (this._draftPrWire) {
+
+            // FIX 6: If PR wire already fired while config was loading,
+            // process its cached data now instead of waiting for a re-fetch.
+            if (this._pendingPrWireData) {
+                console.log('🔄 Config ready — processing cached PR wire data');
+                this._processDraftPrData(this._pendingPrWireData);
+            } else if (this._draftPrWire) {
+                // No cached data → re-trigger the wire so it re-evaluates
+                // draftPrVariables (which no longer returns undefined now).
                 try { refreshGraphQL(this._draftPrWire); } catch (e) {}
             }
         }
