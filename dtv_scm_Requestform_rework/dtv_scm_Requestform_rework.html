@@ -1,62 +1,55 @@
 <template>
     <div class={shellClass}>
 
-        <!-- ══════════════════════════════════════════════════════════════ -->
-        <!-- HEADER                                                         -->
-        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- HEADER -->
         <div class="header">
+            <button class="back-btn" onclick={handleBack} title="Back">
+                <lightning-icon
+                    icon-name="utility:chevronleft"
+                    size="medium"
+                    alternative-text="Back"
+                    class="back-btn__icon">
+                </lightning-icon>
+            </button>
             <span class="header-title">Request</span>
-            <template if:true={hasPendingQueue}>
-                <span class="pending-badge">⏳ {pendingQueueCount} pending</span>
-            </template>
+            <div class="header-right">
+                <template if:true={hasPendingQueue}>
+                    <span class="pending-badge">⏳ {pendingQueueCount}</span>
+                </template>
+            </div>
         </div>
 
-        <!-- ══════════════════════════════════════════════════════════════ -->
-        <!-- NETWORK BANNER                                                 -->
-        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- NETWORK BANNER -->
         <div class={networkBannerClass}>
             <span>{networkLabel}</span>
             <template if:true={showSyncButton}>
-                <button class="sync-btn" onclick={handleSyncQueue} disabled={isSyncing}>
-                    {syncLabel}
-                </button>
+                <button class="sync-btn" onclick={handleSyncQueue} disabled={isSyncing}>{syncLabel}</button>
             </template>
             <template if:true={isSyncing}>
                 <lightning-spinner size="x-small" alternative-text="Syncing..."></lightning-spinner>
             </template>
         </div>
 
-        <!-- ══════════════════════════════════════════════════════════════ -->
-        <!-- TAB BAR — Scheduled | Unscheduled                             -->
-        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- TAB BAR -->
         <div class="tab-bar">
-            <button
-                class={scheduledTabClass}
-                data-tab="scheduled"
-                onclick={handleTabSwitch}>
-                Scheduled
-            </button>
-            <button
-                class={unscheduledTabClass}
-                data-tab="unscheduled"
-                onclick={handleTabSwitch}>
-                Unscheduled
-            </button>
+            <button class={scheduledTabClass}   data-tab="scheduled"   onclick={handleTabSwitch}>Scheduled</button>
+            <button class={unscheduledTabClass} data-tab="unscheduled" onclick={handleTabSwitch}>Unscheduled</button>
         </div>
 
-        <!-- ══════════════════════════════════════════════════════════════ -->
-        <!-- SCHEDULED TAB CONTENT                                          -->
-        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- SCHEDULED TAB -->
         <template if:true={isScheduledTab}>
 
-            <!-- ── Search Bar ─────────────────────────────────────────── -->
+            <!-- Search -->
             <div class="search-wrap">
+                <template if:true={hasActivePrInfo}>
+                    <div class="pr-info-wrap">
+                        <div class="pr-info">
+                            {activePrInfoLabel}
+                        </div>
+                    </div>
+                </template>
                 <div class="search-bar">
-                    <lightning-icon
-                        icon-name="utility:search"
-                        size="x-small"
-                        class="search-icon">
-                    </lightning-icon>
+                    <lightning-icon icon-name="utility:search" size="x-small" class="search-icon"></lightning-icon>
                     <input
                         type="text"
                         class="search-input"
@@ -69,35 +62,29 @@
                 </div>
             </div>
 
-            <!-- ── Loading State ──────────────────────────────────────── -->
+            <!-- Loading -->
             <template if:true={isLoading}>
                 <div class="center-state">
-                    <lightning-spinner size="medium" alternative-text="Loading products..."></lightning-spinner>
-                    <p class="state-txt">Loading products via GraphQL...</p>
+                    <lightning-spinner size="medium" alternative-text="Loading..."></lightning-spinner>
+                    <p class="state-txt">Loading products...</p>
                 </div>
             </template>
 
-            <!-- ── Wire Error ──────────────────────────────────────────── -->
+            <!-- Wire Error -->
             <template if:true={hasWireError}>
-                <div class="err-banner">
-                    ⚠️ {wireErrorMessage}
-                </div>
+                <div class="err-banner">⚠️ {wireErrorMessage}</div>
             </template>
 
-            <!-- ── Product List ────────────────────────────────────────── -->
-            <!-- Uses for:each instead of lightning-datatable             -->
-            <!-- lightning-datatable is NOT supported in FSL Mobile app   -->
+            <!-- Product List -->
             <template if:false={isLoading}>
                 <div class={productListClass}>
 
-                    <!-- No results -->
                     <template if:false={hasFilteredProducts}>
                         <div class="center-state">
                             <p class="state-txt">No products found.</p>
                         </div>
                     </template>
 
-                    <!-- Product rows — tap anywhere to select / deselect -->
                     <template for:each={filteredProducts} for:item="product">
                         <div
                             key={product.id}
@@ -108,18 +95,20 @@
                             <!-- Left: product info -->
                             <div class="product-info">
                                 <span class="product-name">{product.name}</span>
-                                <span class="product-meta">{product.productCode}</span>
+                                <span class="product-meta">{product.description}</span>
                             </div>
 
-                            <!-- Right: check circle (selected) or empty circle (not) -->
+                            <!-- Centre: Default Quantity badge -->
+                            <div class="qty-badge-wrap">
+                                <span class="qty-label">Qty</span>
+                                <span class="qty-value">{product.defaultQuantity}</span>
+                            </div>
+
+                            <!-- Right: select indicator -->
                             <div class="select-indicator">
                                 <template if:true={product.selected}>
                                     <div class="check-circle">
-                                        <lightning-icon
-                                            icon-name="utility:check"
-                                            size="x-small"
-                                            class="check-icon">
-                                        </lightning-icon>
+                                        <lightning-icon icon-name="utility:check" size="x-small" class="check-icon"></lightning-icon>
                                     </div>
                                 </template>
                                 <template if:false={product.selected}>
@@ -133,7 +122,7 @@
                 </div>
             </template>
 
-            <!-- ── Selection Summary ───────────────────────────────────── -->
+            <!-- Selection Summary -->
             <template if:true={hasSelections}>
                 <div class="selection-summary">
                     <lightning-icon icon-name="utility:check" size="x-small"></lightning-icon>
@@ -143,36 +132,112 @@
 
         </template>
 
-        <!-- ══════════════════════════════════════════════════════════════ -->
-        <!-- UNSCHEDULED TAB                                                -->
-        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- UNSCHEDULED TAB -->
         <template if:true={isUnscheduledTab}>
-            <div class="center-state unscheduled-state">
-                <div class="empty-icon">📋</div>
-                <p class="empty-title">Unscheduled</p>
-                <p class="state-txt">No unscheduled requests at this time.</p>
+            <template if:true={hasActivePrInfo}>
+                <div class="pr-info-wrap">
+                    <div class="pr-info">
+                        {activePrInfoLabel}
+                    </div>
+                </div>
+            </template>
+            <!-- NEED BY DATE -->
+            <div class="needby-wrap">
+                <label class="needby-label" for="needByDate">Need By Date</label>
+                <input
+                    id="needByDate"
+                    type="date"
+                    class="needby-input"
+                    value={needByDate}
+                    onchange={handleNeedByDateChange}
+                    disabled={isSubmitted} />
+            </div>
+            <!-- Search -->
+            <div class="search-wrap">
+                <div class="search-bar">
+                    <lightning-icon icon-name="utility:search" size="x-small" class="search-icon"></lightning-icon>
+                    <input
+                        type="text"
+                        class="search-input"
+                        placeholder="SEARCH ITEMS..."
+                        value={searchTerm}
+                        oninput={handleSearch} />
+                    <template if:true={searchTerm}>
+                        <button class="search-clear-btn" onclick={handleClearSearch}>✕</button>
+                    </template>
+                </div>
+            </div>
+            <div class={productListClass}>
+                <template if:false={hasFilteredUnscheduledProducts}>
+                    <div class="center-state unscheduled-state">
+                        <div class="empty-icon">📋</div>
+                        <p class="empty-title">Unscheduled</p>
+                        <p class="state-txt">No products found.</p>
+                    </div>
+                </template>
+
+                <template for:each={filteredUnscheduledProducts} for:item="product">
+                    <div
+                        key={product.id}
+                        class={product.rowClass}
+                        data-productid={product.id}
+                        onclick={handleUnscheduledToggle}>
+                        <div class="product-info">
+                            <span class="product-name">{product.name}</span>
+                            <span class="product-meta">{product.productCode}</span>
+                        </div>
+
+                        <div class="qty-badge-wrap">
+                            <span class="qty-label">Default</span>
+                            <span class="qty-value">{product.defaultQuantity}</span>
+                        </div>
+
+                        <div class="qty-controls">
+                            <button
+                                class="qty-btn"
+                                data-productid={product.id}
+                                onclick={handleQtyDecrement}
+                                disabled={isSubmitted}>
+                                -
+                            </button>
+                            <input
+                                class="qty-input"
+                                type="number"
+                                min="0"
+                                data-productid={product.id}
+                                value={product.qty}
+                                oninput={handleQtyInput}
+                                onclick={handleQtyClick}
+                                disabled={isSubmitted} />
+                            <button
+                                class="qty-btn"
+                                data-productid={product.id}
+                                onclick={handleQtyIncrement}
+                                disabled={isSubmitted}>
+                                +
+                            </button>
+                        </div>
+
+                        <div class="select-indicator" onclick={handleQtyClick}>
+                            <template if:true={product.selected}>
+                                <div class="check-circle">
+                                    <lightning-icon icon-name="utility:check" size="x-small" class="check-icon"></lightning-icon>
+                                </div>
+                            </template>
+                            <template if:false={product.selected}>
+                                <div class="empty-circle"></div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
             </div>
         </template>
 
-        <!-- ══════════════════════════════════════════════════════════════ -->
-        <!-- BOTTOM ACTION BAR — fixed, always visible                      -->
-        <!-- Clear button (green) | Submit button (green)                  -->
-        <!-- Matches exactly the image layout                              -->
-        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- BOTTOM BAR -->
         <div class={bottomBarClass}>
-            <button
-                class="btn-clear"
-                onclick={handleClear}
-                disabled={isActionsDisabled}>
-                Clear
-            </button>
-            <button
-                class="btn-submit"
-                onclick={handleSubmit}
-                disabled={isActionsDisabled}>
-                Submit
-            </button>
+            <button class="btn-clear"  onclick={handleSave}   disabled={isSubmitted}>Save</button>
+            <button class="btn-submit" onclick={handleSubmit} disabled={isActionsDisabled}>Submit</button>
         </div>
 
-    </div><!-- /shell -->
+    </div>
 </template>
