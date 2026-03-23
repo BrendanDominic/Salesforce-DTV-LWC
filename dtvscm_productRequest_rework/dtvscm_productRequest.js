@@ -93,9 +93,10 @@ const GET_RESOURCE_PRODUCTS_QUERY = gql`
                             DTVSCM_Default_Quantity__c { value }
                             DTVSCM_Product__r {
                                 Id
-                                Name        { value }
-                                Description { value }
-                                ProductCode { value }
+                                Name                { value }
+                                Description         { value }
+                                ProductCode         { value }
+                                IsSerialized { value }
                             }
                         }
                     }
@@ -223,15 +224,20 @@ export default class Dtvscm_productRequest extends LightningElement {
             this.needByDate = this.unscheduledNeedByDate || '';
         }
 
-        this.prliMap = new Map();
-        this.prliQtyMap = new Map();
-        this.prliLoaded = false;
+        // Only reset PRLI maps when NOT saving.
+        // During save, prliMap/prliQtyMap must remain intact — they are the single
+        // source of truth for the sync delta (existingIds). Resetting them here wipes
+        // that truth, causing toCreate to include all selected products (duplicates)
+        // and toDelete to be empty (deselect not removed).
+        // Sync operations maintain the local maps accurately via set/delete calls.
+        // STEP 4's explicit _applyQuantitiesFromPrliMap() reconciles from server after save.
+        if (!this.isSaving) {
+            this.prliMap = new Map();
+            this.prliQtyMap = new Map();
+            this.prliLoaded = false;
+        }
 
         this._applySelectionsFromPrliMap();
-        // Skip _applyQuantitiesFromPrliMap during save — prliMap was just reset to
-        // new Map() above, which would wipe all unscheduledProducts to qty=0,selected=false.
-        // STEP 4 in handleSave explicitly calls _applyQuantitiesFromPrliMap() after the
-        // wire settles with fresh server data, restoring correct state.
         if (!this.isSaving) {
             this._applyQuantitiesFromPrliMap();
         }
@@ -451,6 +457,17 @@ export default class Dtvscm_productRequest extends LightningElement {
         }
 
         if (data) {
+            // Skip all processing while a save is in progress.
+            // STEP 4 of handleSave calls _refreshPrData() which triggers this wire.
+            // Processing mid-save calls _processDraftPrData → _applyActiveTabState,
+            // which (even with the prliMap guard) still overwrites activePrId from
+            // stale tab-slot data at the wrong time. Skip entirely; the wire will
+            // re-fire with fresh data after isSaving=false in the finally block.
+            if (this.isSaving) {
+                console.log('⏭️ wiredDraftPR skipped — save in progress');
+                return;
+            }
+
             // FIX 5: If config is not ready yet, cache the wire data and
             // defer processing. wiredPrConfig will call _processDraftPrData()
             // once the metadata is loaded. This prevents statusDefault /
@@ -671,13 +688,15 @@ export default class Dtvscm_productRequest extends LightningElement {
                 description:     product2?.Description?.value || '—',
                 productCode:     product2?.ProductCode?.value || '—',
                 defaultQuantity: defaultQuantity,
+                isSerialized:    product2?.IsSerialized?.value === true,
                 selected:        false,
                 rowClass:        'product-row'
             };
         });
 
         // ───────── Scheduled Logic ─────────
-        this.allProducts = baseProducts;
+        // Scheduled tab shows only non-serialized products (IsSerialized = false).
+        this.allProducts = baseProducts.filter(p => !p.isSerialized);
 
         // ───────── Unscheduled Logic ─────────
         // Initial state: qty = defaultQuantity (display value), selected = false.
@@ -686,9 +705,9 @@ export default class Dtvscm_productRequest extends LightningElement {
         // PRLI is restored from the server via _applyQuantitiesFromPrliMap().
         this.unscheduledProducts = baseProducts.map(p => ({
             ...p,
-            qty:            0,     // starts at 0 — user must interact to set qty > 0
-            isUserModified: false,
-            selected:       false,
+            qty:            p.defaultQuantity, // display value — input shows default on load
+            isUserModified: false,                 // selection NOT triggered by default qty
+            selected:       false,                 // must explicitly select to create PRLI
             rowClass:       'product-row'
         }));
 
@@ -744,11 +763,13 @@ export default class Dtvscm_productRequest extends LightningElement {
             const hasPrli = p.product2Id && this.prliMap.has(p.product2Id);
 
             // Saved PRLI exists → restore saved qty from server.
-            // No PRLI → qty = 0 so product is not auto-included in sync.
+            // No PRLI → show defaultQuantity in input (display value; not a selection trigger).
+            // selected is still controlled by hasPrli, so displaying defaultQuantity
+            // does NOT cause the product to be included in PRLI sync.
             const qty = hasPrli
-                ? (this.prliQtyMap.get(p.product2Id) || 0)
-                : 0;
-            const nextQty  = Number(qty) || 0;
+                ? (this.prliQtyMap.get(p.product2Id) || p.defaultQuantity)
+                : p.defaultQuantity;
+            const nextQty  = Number(qty) || p.defaultQuantity;
 
             // FIX 3: selected = hasPrli AND qty > 0.
             // Products WITHOUT a saved PRLI: selected = false (defaultQuantity is display only).
@@ -773,8 +794,8 @@ export default class Dtvscm_productRequest extends LightningElement {
         if (!this.searchTerm) return this.allProducts;
         const term = this.searchTerm.toLowerCase();
         return this.allProducts.filter(p =>
-            p.name.toLowerCase().includes(term) ||
-            p.productCode.toLowerCase().includes(term)
+            (p.name        && p.name.toLowerCase().includes(term)) ||
+            (p.description && p.description.toLowerCase().includes(term))
         );
     }
     get hasFilteredProducts() { return this.filteredProducts.length > 0; }
@@ -819,8 +840,8 @@ export default class Dtvscm_productRequest extends LightningElement {
         if (!this.searchTerm) return this.unscheduledProducts;
         const term = this.searchTerm.toLowerCase();
         return this.unscheduledProducts.filter(p =>
-            p.name.toLowerCase().includes(term) ||
-            p.productCode.toLowerCase().includes(term)
+            (p.name        && p.name.toLowerCase().includes(term)) ||
+            (p.description && p.description.toLowerCase().includes(term))
         );
     }
     get hasFilteredUnscheduledProducts() { return this.filteredUnscheduledProducts.length > 0; }
@@ -835,15 +856,12 @@ export default class Dtvscm_productRequest extends LightningElement {
 
             const nextSelected = !p.selected;
 
-            // On deselect: qty = 0 so the product is excluded from sync → PRLI deleted.
-            // On select: restore qty to defaultQuantity as the starting value.
-            const nextQty = nextSelected
-                ? (p.qty > 0 ? p.qty : p.defaultQuantity)
-                : 0; // qty=0 ensures this product goes into toDelete on next Save
-
+            // Toggle only flips selected — qty is NEVER changed here.
+            // qty is a display/data value the user sets via +/-/input.
+            // Sync works because it filters by p.selected && qty>0:
+            // a deselected product is excluded from selectedIds → goes to toDelete.
             return {
                 ...p,
-                qty:            nextQty,
                 selected:       nextSelected,
                 isUserModified: true,
                 rowClass:       nextSelected ? 'product-row selected' : 'product-row'
@@ -865,8 +883,6 @@ export default class Dtvscm_productRequest extends LightningElement {
             // Mark as user-modified — now this product can be selected
             const nextModified = true;
             const nextSelected = nextValue > 0;
-            // Track pending qty change — written to Resource Product on Save only
-            this._pendingQtyChanges.set(p.id, nextValue);
             return {
                 ...p,
                 qty:            nextValue,
@@ -891,7 +907,6 @@ export default class Dtvscm_productRequest extends LightningElement {
             // selected = qty > 0 (always true after increment since min result is 1).
             const nextValue    = Number(p.qty || 0) + 1;
             const nextSelected = nextValue > 0;
-            this._pendingQtyChanges.set(p.id, nextValue);
             return {
                 ...p,
                 qty:            nextValue,
@@ -912,7 +927,6 @@ export default class Dtvscm_productRequest extends LightningElement {
             // When qty reaches 0 → selected becomes false automatically.
             const next         = Math.max(0, Number(p.qty || 0) - 1);
             const nextSelected = next > 0;
-            this._pendingQtyChanges.set(p.id, next);
             return {
                 ...p,
                 qty:            next,
@@ -1092,12 +1106,8 @@ export default class Dtvscm_productRequest extends LightningElement {
                 deleteErrors = result.deleteErrors;
                 delta = result.delta;
 
-                // After PRLI sync succeeds, write pending qty changes to
-                // Resource Product.DTVSCM_Default_Quantity__c.
-                // This is only triggered on Save — unsaved changes are discarded.
-                if (createErrors.length === 0 && updateErrors.length === 0 && deleteErrors.length === 0) {
-                    await this._flushPendingQtyChanges();
-                }
+                // Resource Product (DTVSCM_Resource_Product__c) is READ-ONLY.
+                // defaultQuantity is a static display value — never written back.
             }
 
             const hasSaveErrors = createErrors.length > 0 || updateErrors.length > 0 || deleteErrors.length > 0;
@@ -1212,13 +1222,15 @@ export default class Dtvscm_productRequest extends LightningElement {
 
     // ───────── Unscheduled Logic ─────────
     async _syncUnscheduledSelections() {
-        const existingMap = this.prliMap;      // Map(Product2Id → PRLI.Id)
-        const existingQty = this.prliQtyMap;   // Map(Product2Id → Quantity)
+        // Snapshot maps at the start of sync — not live references.
+        // This prevents wire re-fires mid-loop from changing the delta.
+        const existingMap = new Map(this.prliMap);     // Product2Id → PRLI Record Id
+        const existingQty = new Map(this.prliQtyMap);  // Product2Id → Quantity
         const existingIds = new Set(existingMap.keys());
 
-        // selected=true AND qty>0 are both required for PRLI creation.
-        // selected=true: user explicitly chose this product (toggle/+/-/input).
-        // qty>0: ensures deselected products (qty reset to 0) go to toDelete not toCreate.
+        // selected=true AND qty>0: the strict filter for PRLI creation/update.
+        // Deselected products (qty=0, selected=false) are excluded here and picked
+        // up by toDelete below via existingIds - selectedIds.
         const selected = this.unscheduledProducts
             .filter(p => p.product2Id && p.selected && Number(p.qty || 0) > 0)
             .map(p => ({ ...p, qty: Math.max(0, Number(p.qty || 0)) }));
@@ -1238,6 +1250,29 @@ export default class Dtvscm_productRequest extends LightningElement {
         for (const pid of toCreate) {
             const p = selected.find(x => x.product2Id === pid);
             if (!p) continue;
+
+            // Idempotency guard: never create if PRLI already exists in local map.
+            // Protects against duplicate creates if wire fires and updates prliMap
+            // mid-loop, or if this method is called twice concurrently.
+            if (this.prliMap.has(pid)) {
+                console.warn(`⚠️ PRLI already exists for product ${p.name} — skipping create, will update instead`);
+                // Treat as an update if qty differs
+                const savedQty = this.prliQtyMap.get(pid);
+                if (savedQty !== p.qty) {
+                    try {
+                        const upFields = {};
+                        upFields.Id = this.prliMap.get(pid);
+                        upFields[PRLI_QTY_REQUESTED.fieldApiName] = p.qty;
+                        await updateRecord({ fields: upFields });
+                        this.prliQtyMap.set(pid, p.qty);
+                        console.log(`✅ PRLI updated (idempotency path): ${p.name} qty=${p.qty}`);
+                    } catch (e) {
+                        createErrors.push(`${p.name}: ${e?.body?.message || e.message}`);
+                    }
+                }
+                continue;
+            }
+
             try {
                 const prliFields = {};
                 prliFields[PRLI_PR_ID.fieldApiName]         = this.activePrId;
@@ -1430,7 +1465,7 @@ export default class Dtvscm_productRequest extends LightningElement {
                 // defaultQuantity is not used here to avoid accidental auto-save.
                 this.unscheduledProducts = this.unscheduledProducts.map(p => ({
                     ...p,
-                    qty:            0,
+                    qty:            p.defaultQuantity, // reset to display default for new PR
                     isUserModified: false,
                     selected:       false,
                     rowClass:       'product-row'
