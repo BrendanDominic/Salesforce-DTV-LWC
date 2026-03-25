@@ -462,6 +462,15 @@
     text-align: center;
     background: #fff;
     color: var(--text);
+    /* Hide browser number spinner arrows — user uses +/- buttons instead */
+    appearance: textfield;           /* Standard — suppresses spinner in all browsers */
+}
+
+/* Chrome / Safari / Edge — hide inner spin button */
+.qty-input::-webkit-outer-spin-button,
+.qty-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
 }
 
 .qty-input:focus {
