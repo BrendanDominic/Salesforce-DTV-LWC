@@ -546,27 +546,25 @@
     justify-content: center;
 }
 
-.empty-circle {
+.checkbox {
     width: 22px;
     height: 22px;
-    border-radius: 50%;
     border: 2px solid var(--border);
+    border-radius: 4px;
     background: #fff;
-    transition: border-color 0.15s;
-}
-
-.product-row:hover .empty-circle {
-    border-color: var(--brand);
-}
-
-.check-circle {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: var(--brand);
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.product-row:hover .checkbox {
+    border-color: var(--brand);
+}
+
+.checkbox.checked {
+    background: var(--brand);
+    border-color: var(--brand);
     box-shadow: 0 2px 6px rgba(1,118,211,0.35);
     animation: pop 0.18s ease;
 }
@@ -577,7 +575,10 @@
     100% { transform: scale(1); }
 }
 
-.check-icon { --lwc-colorTextIconDefault: #ffffff; }
+.check-icon {
+    --lwc-colorTextIconDefault: #ffffff;
+    --sds-c-icon-color-foreground-default: #ffffff;
+}
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* SELECTION SUMMARY                                                          */
