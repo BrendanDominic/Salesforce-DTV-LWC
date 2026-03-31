@@ -6,7 +6,7 @@ import { gql, graphql, refreshGraphQL } from 'lightning/uiGraphQLApi';
 import { createRecord, updateRecord, deleteRecord } from 'lightning/uiRecordApi';
 import USER_ID from '@salesforce/user/Id';
 
-const FORM_FACTOR_SMALL = 'Small';
+const FORM_FACTOR_SMALL = 'Small';      
 const FORM_FACTOR_LARGE = 'Large';
 
 const TAB_SCHEDULED = 'scheduled';
@@ -849,13 +849,13 @@ export default class Dtvscm_productRequest extends LightningElement {
         // Selection happens ONLY when user interacts (+/-/input) or when a saved
         // PRLI is restored from the server via _applyQuantitiesFromPrliMap().
         // Unscheduled tab: serialized + non-serialized shown, but ONLY active products.
-        // qty starts at defaultQuantity (or 0 if not set).
+        // qty starts at defaultQuantity (min 1 for non-serialized).
         // selected = false always — user must interact to select.
         this.unscheduledProducts = baseProducts
             .filter(p => p.isActive)
             .map(p => ({
             ...p,
-            qty:            p.isSerialized ? 1 : (Number(p.defaultQuantity) || 0),
+            qty:            p.isSerialized ? 1 : (Number(p.defaultQuantity) > 0 ? Number(p.defaultQuantity) : 1),
             isUserModified: false,
             selected:       false,
             rowClass:       'product-row'
@@ -917,9 +917,9 @@ export default class Dtvscm_productRequest extends LightningElement {
             // selected is still controlled by hasPrli, so displaying defaultQuantity
             // does NOT cause the product to be included in PRLI sync.
             // hasPrli: restore saved PRLI qty (may be 0 if server stored 0).
-            // No PRLI: show defaultQuantity in input (may also be 0).
+            // No PRLI → show defaultQuantity (min 1 for non-serialized).
             const savedQty = hasPrli ? this.prliQtyMap.get(p.product2Id) : undefined;
-            const fallbackQty = p.isSerialized ? 1 : p.defaultQuantity;
+            const fallbackQty = p.isSerialized ? 1 : (Number(p.defaultQuantity) > 0 ? Number(p.defaultQuantity) : 1);
             const qty      = (savedQty !== null && savedQty !== undefined)
                 ? savedQty
                 : fallbackQty;
@@ -1769,7 +1769,7 @@ export default class Dtvscm_productRequest extends LightningElement {
                 // Reset to clean slate — matches initial build state exactly.
                 this.unscheduledProducts = this.unscheduledProducts.map(p => ({
                     ...p,
-                    qty:            p.isSerialized ? 1 : (Number(p.defaultQuantity) || 0),
+                    qty:            p.isSerialized ? 1 : (Number(p.defaultQuantity) > 0 ? Number(p.defaultQuantity) : 1),
                     isUserModified: false,
                     selected:       false,
                     rowClass:       'product-row'
