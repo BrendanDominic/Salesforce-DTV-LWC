@@ -205,11 +205,14 @@
                             </button>
                             <input
                                 class="qty-input"
-                                type="number"
+                                type="text"
                                 min="0"
+                                inputmode="numeric"
+                                pattern="[0-9]*"
                                 data-productid={product.id}
                                 value={product.qty}
                                 oninput={handleQtyInput}
+                                onkeydown={handleQtyKeyDown}
                                 onclick={handleQtyClick}
                                 disabled={isSubmitted} />
                             <button
