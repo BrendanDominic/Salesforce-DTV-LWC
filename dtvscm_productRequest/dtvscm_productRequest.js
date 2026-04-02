@@ -4,6 +4,7 @@ import FORM_FACTOR from '@salesforce/client/formFactor';
 
 import { gql, graphql, refreshGraphQL } from 'lightning/uiGraphQLApi';
 import { createRecord, updateRecord, deleteRecord } from 'lightning/uiRecordApi';
+import { getObjectInfo } from 'lightning/uiObjectInfoApi';
 import USER_ID from '@salesforce/user/Id';
 
 const FORM_FACTOR_SMALL = 'Small';      
@@ -21,6 +22,7 @@ const STATUS_SUBMIT = 'Submitted';
 const STATUS_ERROR_IN_SUBMISSION = 'Error In Submission';
 const STATUS_CLOSED_REJECTED = 'Closed - Rejected';
 const STATUS_CLOSED_FULFILLED = 'Closed - Fulfilled';
+const RECORD_TYPE_FIELD_SERVICE = 'Field_Service';
 
 // ProductRequest schema tokens
 import PR_OBJECT      from '@salesforce/schema/ProductRequest';
@@ -30,6 +32,7 @@ import PR_NEED_BY_DATE from '@salesforce/schema/ProductRequest.NeedByDate';
 import PR_ID          from '@salesforce/schema/ProductRequest.Id';
 import PR_SHIPMENT_TYPE    from '@salesforce/schema/ProductRequest.ShipmentType';
 import PR_SERVICE_RESOURCE from '@salesforce/schema/ProductRequest.DTVSCM_Service_Resource__c';
+import PR_RECORD_TYPE_ID   from '@salesforce/schema/ProductRequest.RecordTypeId';
 
 // ProductRequestLineItem schema tokens
 import PRLI_OBJECT        from '@salesforce/schema/ProductRequestLineItem';
@@ -37,6 +40,7 @@ import PRLI_PR_ID         from '@salesforce/schema/ProductRequestLineItem.Parent
 import PRLI_PRODUCT2_ID   from '@salesforce/schema/ProductRequestLineItem.Product2Id';
 import PRLI_QTY_REQUESTED from '@salesforce/schema/ProductRequestLineItem.QuantityRequested';
 import PRLI_STATUS        from '@salesforce/schema/ProductRequestLineItem.Status';
+import PRLI_RECORD_TYPE_ID from '@salesforce/schema/ProductRequestLineItem.RecordTypeId';
 
 // Resource Product schema tokens — used to update Default Quantity on Save
 // DTVSCM_Default_Quantity__c is updated ONLY after user clicks Save
@@ -113,7 +117,7 @@ const GET_RESOURCE_PRODUCTS_QUERY = gql`
                         DTVSCM_Product__r: { IsActive: { eq: true } }
                     }
                     orderBy: { Name: { order: ASC } }
-                    first: 200
+                    
                 ) {
                     edges {
                         node {
@@ -146,7 +150,7 @@ const GET_PRLI_QUERY = gql`
             query {
                 ProductRequestLineItem(
                     where: { ParentId: { eq: $prId } }
-                    first: 500
+                    
                 ) {
                     edges {
                         node {
@@ -203,6 +207,7 @@ export default class Dtvscm_productRequest extends LightningElement {
         // is processed fresh, not skipped as already-loaded.
         this._prLoaded = false;
         this._applyActiveTabState();
+        this._refreshResourceProducts();
     }
 
     _shipmentTypeForTab(tab) {
@@ -359,6 +364,7 @@ export default class Dtvscm_productRequest extends LightningElement {
 
     handleOnline() {
         this.isOnline = true;
+        this._refreshResourceProducts();
         this._refreshDraftPrStatusIfNeeded();
         if (this.offlineQueue.length > 0) {
             this.dispatchEvent(new ShowToastEvent({
@@ -429,6 +435,20 @@ export default class Dtvscm_productRequest extends LightningElement {
     get statusClosedRejected() { return STATUS_CLOSED_REJECTED; }
     get statusClosedFulfilled() { return STATUS_CLOSED_FULFILLED; }
 
+    @wire(getObjectInfo, { objectApiName: PR_OBJECT })
+    prObjectInfo;
+
+    @wire(getObjectInfo, { objectApiName: PRLI_OBJECT })
+    prliObjectInfo;
+
+    get prRecordTypeId() {
+        return this._getRecordTypeId(this.prObjectInfo);
+    }
+
+    get prliRecordTypeId() {
+        return this._getRecordTypeId(this.prliObjectInfo);
+    }
+
     get isConfigReady() { return true; }
 
     get isPrReady() {
@@ -437,6 +457,19 @@ export default class Dtvscm_productRequest extends LightningElement {
 
     get activePrStatusValues() {
         return [this.statusDefault, this.statusSubmit, this.statusErrorInSubmission];
+    }
+
+    _getRecordTypeId(objectInfo) {
+        const recordTypeInfos = objectInfo?.data?.recordTypeInfos;
+        if (!recordTypeInfos) return null;
+        const match = Object.values(recordTypeInfos)
+            .find((info) => info?.developerName === RECORD_TYPE_FIELD_SERVICE);
+        return match ? match.recordTypeId : null;
+    }
+
+    _applyRecordTypeId(fields, recordTypeId, fieldToken) {
+        if (!recordTypeId || !fieldToken) return;
+        fields[fieldToken.fieldApiName] = recordTypeId;
     }
 
     // Raw edges stored so we can rebuild product list after SR resolves
@@ -464,6 +497,7 @@ export default class Dtvscm_productRequest extends LightningElement {
 
     // Cached wire results for refreshGraphQL
     _draftPrWire = null;
+    _rpWire = null;
     _prliWire = null;
 
     // Status refresh polling handle
@@ -474,13 +508,15 @@ export default class Dtvscm_productRequest extends LightningElement {
     // calls _checkAndResetIfClosed again — this flag breaks that cycle.
     _isResettingClosed = false;
     _isPollingRefresh = false;
+    _isRefreshingResourceProducts = false;
 
     _refreshDraftPrStatusIfNeeded() {
         if (!this.isOnline) return;
         if (this.isSaving) return;
         if (!this._draftPrWire) return;
         if (!this.isScheduledTab) return;
-        if (this.activePrStatus !== this.statusSubmit) return;
+        if (!this.activePrId) return;
+        if (!this.activePrStatusValues.includes(this.activePrStatus)) return;
         if (this._isPollingRefresh) return;
         this._isPollingRefresh = true;
         try {
@@ -489,6 +525,20 @@ export default class Dtvscm_productRequest extends LightningElement {
             this._isPollingRefresh = false;
             console.warn('⚠️ Draft PR refresh failed:', e);
         }
+    }
+
+    _refreshResourceProducts() {
+        if (!this.isOnline) return;
+        if (!this._rpWire) return;
+        if (this._isRefreshingResourceProducts) return;
+        this._isRefreshingResourceProducts = true;
+        refreshGraphQL(this._rpWire)
+            .catch((e) => {
+                console.warn('⚠️ Resource Products refresh failed:', e);
+            })
+            .finally(() => {
+                this._isRefreshingResourceProducts = false;
+            });
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -605,18 +655,19 @@ export default class Dtvscm_productRequest extends LightningElement {
 
         const isScheduled = this.isScheduledTab;
         const statusValue = existingPr?.Status?.value || this.statusDefault;
+        const closedRejectedStatus  = this.statusClosedRejected;
+        const closedFulfilledStatus = this.statusClosedFulfilled;
+        const submitStatus          = this.statusSubmit;
+        const defaultStatus         = this.statusDefault;
 
         if (this._isPollingRefresh) {
+            const isClosed = statusValue === closedRejectedStatus || statusValue === closedFulfilledStatus;
             if (existingPr &&
                 isScheduled &&
-                this.activePrStatus === this.statusSubmit &&
-                statusValue === this.statusSubmit) {
+                this.activePrId === existingPr.Id &&
+                !isClosed) {
                 this.activePrStatus = statusValue;
-                if (isScheduled) {
-                    this.activeScheduledPrStatus = statusValue;
-                } else {
-                    this.activeUnscheduledPrStatus = statusValue;
-                }
+                this.activeScheduledPrStatus = statusValue;
                 this._isPollingRefresh = false;
                 this._tryFinishLoading();
                 return;
@@ -641,10 +692,6 @@ export default class Dtvscm_productRequest extends LightningElement {
         };
 
         if (existingPr) {
-            const closedRejectedStatus  = this.statusClosedRejected;
-            const closedFulfilledStatus = this.statusClosedFulfilled;
-            const submitStatus          = this.statusSubmit;
-            const defaultStatus         = this.statusDefault;
             const rawNeedByDate         = existingPr?.NeedByDate?.value || '';
             const needByDateValue       = rawNeedByDate ? String(rawNeedByDate).split('T')[0] : '';
 
@@ -710,7 +757,9 @@ export default class Dtvscm_productRequest extends LightningElement {
     }
 
     @wire(graphql, { query: GET_RESOURCE_PRODUCTS_QUERY, variables: '$resourceProductsVariables' })
-    wiredResourceProducts({ data, errors }) {
+    wiredResourceProducts(value) {
+        this._rpWire = value;
+        const { data, errors } = value || {};
         if (data === undefined && errors === undefined) return;
 
         this._rpLoaded = true;
@@ -1116,6 +1165,20 @@ export default class Dtvscm_productRequest extends LightningElement {
         });
     }
 
+    handleQtyKeyDown(event) {
+        const allowedKeys = [
+            'Backspace', 'Delete', 'Tab',
+            'ArrowLeft', 'ArrowRight',
+            'ArrowUp', 'ArrowDown',
+            'Home', 'End'
+        ];
+
+        if (allowedKeys.includes(event.key)) return;
+        if (/^\d$/.test(event.key)) return;
+
+        event.preventDefault();
+    }
+
     handleQtyClick(event) {
         event.stopPropagation();
     }
@@ -1360,6 +1423,7 @@ export default class Dtvscm_productRequest extends LightningElement {
             if (this.isUnscheduledTab && this.needByDate) {
                 prFields[PR_NEED_BY_DATE.fieldApiName] = new Date(this.needByDate + 'T00:00:00.000Z').toISOString();
             }
+            this._applyRecordTypeId(prFields, this.prRecordTypeId, PR_RECORD_TYPE_ID);
 
             console.log('⚡ Creating ProductRequest...');
             const prResult = await createRecord({
@@ -1459,6 +1523,7 @@ export default class Dtvscm_productRequest extends LightningElement {
                 prliFields[PRLI_STATUS.fieldApiName]        = this.statusDefault;
                 prliFields[PRLI_QTY_REQUESTED.fieldApiName] = (p.defaultQuantity && Number(p.defaultQuantity) > 0)
                     ? Number(p.defaultQuantity) : 1;
+                this._applyRecordTypeId(prliFields, this.prliRecordTypeId, PRLI_RECORD_TYPE_ID);
                 if (this.sourceLocationId) {
                     prliFields['SourceLocationId'] = this.sourceLocationId;
                 }
@@ -1563,6 +1628,7 @@ export default class Dtvscm_productRequest extends LightningElement {
                 prliFields[PRLI_PRODUCT2_ID.fieldApiName]   = pid;
                 prliFields[PRLI_STATUS.fieldApiName]        = this.statusDefault;
                 prliFields[PRLI_QTY_REQUESTED.fieldApiName] = p.qty;
+                this._applyRecordTypeId(prliFields, this.prliRecordTypeId, PRLI_RECORD_TYPE_ID);
                 if (this.sourceLocationId) {
                     prliFields['SourceLocationId'] = this.sourceLocationId;
                 }
@@ -1901,6 +1967,7 @@ export default class Dtvscm_productRequest extends LightningElement {
         const prFields = {};
         prFields[PR_STATUS.fieldApiName]      = this.statusDefault;
         prFields[PR_DESCRIPTION.fieldApiName] = `Product Request — ${items.length} item(s) — ${new Date().toLocaleDateString()}`;
+        this._applyRecordTypeId(prFields, this.prRecordTypeId, PR_RECORD_TYPE_ID);
 
         const prResult = await createRecord({ apiName: PR_OBJECT.objectApiName, fields: prFields });
         const prId     = prResult.id;
@@ -1916,6 +1983,7 @@ export default class Dtvscm_productRequest extends LightningElement {
                 prliFields[PRLI_PRODUCT2_ID.fieldApiName]   = item.product2Id;
                 prliFields[PRLI_STATUS.fieldApiName]        = this.statusDefault;
                 prliFields[PRLI_QTY_REQUESTED.fieldApiName] = item.defaultQuantity || 1;
+                this._applyRecordTypeId(prliFields, this.prliRecordTypeId, PRLI_RECORD_TYPE_ID);
                 await createRecord({ apiName: PRLI_OBJECT.objectApiName, fields: prliFields });
                 prliCount++;
             } catch (prliErr) {
