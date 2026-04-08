@@ -48,6 +48,12 @@
                         </div>
                     </div>
                 </template>
+                <template if:true={isSubmitted}>
+                    <div class="slds-notify slds-notify_alert slds-alert_warning slds-m-bottom_x-small" role="alert">
+                        <span class="slds-assistive-text">Warning</span>
+                        <span>This Product Request is submitted and locked.</span>
+                    </div>
+                </template>
                 <div class="search-bar">
                     <lightning-icon icon-name="utility:search" size="x-small" class="search-icon"></lightning-icon>
                     <input
@@ -241,7 +247,7 @@
 
         <!-- BOTTOM BAR -->
         <div class={bottomBarClass}>
-            <button class="btn-clear"  onclick={handleSave}   disabled={isSubmitted}>Save</button>
+            <button class="btn-clear"  onclick={handleSave}   disabled={isActionsDisabled}>Save</button>
             <button class="btn-submit" onclick={handleSubmit} disabled={isActionsDisabled}>Submit</button>
         </div>
 
