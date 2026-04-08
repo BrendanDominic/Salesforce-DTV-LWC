@@ -48,6 +48,12 @@
                         </div>
                     </div>
                 </template>
+                <template if:true={isSubmitted}>
+                    <div class="slds-notify slds-notify_alert slds-alert_warning slds-m-bottom_x-small" role="alert">
+                        <span class="slds-assistive-text">Warning</span>
+                        <span>This Product Request is submitted and locked.</span>
+                    </div>
+                </template>
                 <div class="search-bar">
                     <lightning-icon icon-name="utility:search" size="x-small" class="search-icon"></lightning-icon>
                     <input
@@ -148,10 +154,11 @@
                     id="needByDate"
                     type="date"
                     class="needby-input"
-                    value={needByDate}
+                    value={needByDateInputValue}
                     onchange={handleNeedByDateChange}
                     min={todayDate}
                     variant="label-hidden"
+                    title={formattedNeedByDate}
                     disabled={isSubmitted}>
                 </lightning-input>
             </div>
@@ -205,11 +212,14 @@
                             </button>
                             <input
                                 class="qty-input"
-                                type="number"
+                                type="text"
                                 min="0"
+                                inputmode="numeric"
+                                pattern="[0-9]*"
                                 data-productid={product.id}
                                 value={product.qty}
                                 oninput={handleQtyInput}
+                                onkeydown={handleQtyKeyDown}
                                 onclick={handleQtyClick}
                                 disabled={isSubmitted} />
                             <button
@@ -221,7 +231,7 @@
                             </button>
                         </div>
 
-                        <div class="select-indicator" onclick={handleQtyClick}>
+                        <div class="select-indicator">
                             <template if:true={product.selected}>
                                 <div class="checkbox checked">
                                     <lightning-icon icon-name="utility:check" size="x-small" class="check-icon"></lightning-icon>
@@ -236,11 +246,4 @@
             </div>
         </template>
 
-        <!-- BOTTOM BAR -->
-        <div class={bottomBarClass}>
-            <button class="btn-clear"  onclick={handleSave}   disabled={isSubmitted}>Save</button>
-            <button class="btn-submit" onclick={handleSubmit} disabled={isActionsDisabled}>Submit</button>
-        </div>
-
-    </div>
-</template>
+        <!-
