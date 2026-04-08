@@ -33,6 +33,7 @@ import PR_ID          from '@salesforce/schema/ProductRequest.Id';
 import PR_SHIPMENT_TYPE    from '@salesforce/schema/ProductRequest.ShipmentType';
 import PR_SERVICE_RESOURCE from '@salesforce/schema/ProductRequest.DTVSCM_Service_Resource__c';
 import PR_RECORD_TYPE_ID   from '@salesforce/schema/ProductRequest.RecordTypeId';
+import PR_SUBMIT_DATE from '@salesforce/schema/ProductRequest.DTVSCM_Submit_Date__c';
 
 // ProductRequestLineItem schema tokens
 import PRLI_OBJECT        from '@salesforce/schema/ProductRequestLineItem';
@@ -285,14 +286,18 @@ export default class Dtvscm_productRequest extends LightningElement {
     }
 
     _applyActiveTabState() {
+        const prevActivePrId = this.activePrId;
+        let nextActivePrId = null;
         if (this.isScheduledTab) {
-            this.activePrId = this.activeScheduledPrId || null;
+            nextActivePrId = this.activeScheduledPrId || null;
+            this.activePrId = nextActivePrId;
             this.activePrStatus = this.activeScheduledPrStatus || null;
             this.activePrNumber = this.activeScheduledPrNumber || '';
             this.needByDate = this.scheduledNeedByDate || '';
             this.originalNeedByDate = '';
         } else {
-            this.activePrId = this.activeUnscheduledPrId || null;
+            nextActivePrId = this.activeUnscheduledPrId || null;
+            this.activePrId = nextActivePrId;
             this.activePrStatus = this.activeUnscheduledPrStatus || null;
             this.activePrNumber = this.activeUnscheduledPrNumber || '';
             this.needByDate = this.unscheduledNeedByDate || '';
@@ -306,7 +311,8 @@ export default class Dtvscm_productRequest extends LightningElement {
         // and toDelete to be empty (deselect not removed).
         // Sync operations maintain the local maps accurately via set/delete calls.
         // STEP 4's explicit _applyQuantitiesFromPrliMap() reconciles from server after save.
-        if (!this.isSaving) {
+        const shouldResetPrli = !this.isSaving && (!this.isScheduledTab || !nextActivePrId || nextActivePrId !== prevActivePrId);
+        if (shouldResetPrli) {
             this.prliMap = new Map();
             this.prliQtyMap = new Map();
             this.prliLoaded = false;
@@ -350,7 +356,7 @@ export default class Dtvscm_productRequest extends LightningElement {
         // Poll for status changes while a Scheduled PR is submitted (online only).
         this._statusPollId = setInterval(() => {
             this._refreshDraftPrStatusIfNeeded();
-        }, 3000);
+        }, 100);
     }
 
     disconnectedCallback() {
@@ -509,6 +515,9 @@ export default class Dtvscm_productRequest extends LightningElement {
     _isResettingClosed = false;
     _isPollingRefresh = false;
     _isRefreshingResourceProducts = false;
+    _allowSelectionApplyDuringSave = false;
+    _pendingPrliSync = false;
+    _expectedPrliProductIds = null;
 
     _refreshDraftPrStatusIfNeeded() {
         if (!this.isOnline) return;
@@ -819,6 +828,21 @@ export default class Dtvscm_productRequest extends LightningElement {
                 }
             }
 
+            let resolvedPendingSync = false;
+            if (this._pendingPrliSync) {
+                const expected = this._expectedPrliProductIds || new Set();
+                const wireIds = new Set(map.keys());
+                const matches = wireIds.size === expected.size &&
+                    [...wireIds].every(id => expected.has(id));
+                if (!matches) {
+                    console.log('⏳ PRLI wire skipped — waiting for stable sync');
+                    return;
+                }
+                this._pendingPrliSync = false;
+                this._expectedPrliProductIds = null;
+                resolvedPendingSync = true;
+            }
+
             this.prliMap    = map;
             this.prliQtyMap = qtyMap;
             this.prliLoaded = true;
@@ -826,10 +850,20 @@ export default class Dtvscm_productRequest extends LightningElement {
 
             this._applySavedSnapshotIfOffline();
 
+            if (this.isSaving) {
+                if (resolvedPendingSync) {
+                    this._allowSelectionApplyDuringSave = true;
+                    try {
+                        this._applySelectionsFromPrliMap();
+                    } finally {
+                        this._allowSelectionApplyDuringSave = false;
+                    }
+                    this._applyQuantitiesFromPrliMap();
+                }
+                return;
+            }
+
             // Apply saved selections to UI.
-            // Skip _applyQuantitiesFromPrliMap while a save is in progress —
-            // the save already calls it explicitly after the wire settles.
-            // Calling it here mid-save would overwrite the user's current selections.
             this._applySelectionsFromPrliMap();
             if (!this.isSaving) {
                 this._applyQuantitiesFromPrliMap();
@@ -937,6 +971,8 @@ export default class Dtvscm_productRequest extends LightningElement {
     // Apply saved PRLI selections to UI
     // ─────────────────────────────────────────────────────────────────────
     _applySelectionsFromPrliMap() {
+        if (this._pendingPrliSync) return;
+        if (this.isSaving && !this._allowSelectionApplyDuringSave) return;
         if (this.allProducts.length === 0) return;
 
         this.allProducts = this.allProducts.map(p => {
@@ -956,6 +992,7 @@ export default class Dtvscm_productRequest extends LightningElement {
     // ───────── Unscheduled Logic ─────────
     // Apply saved PRLI selections and quantities to the unscheduled list
     _applyQuantitiesFromPrliMap() {
+        if (this._pendingPrliSync) return;
         if (this.unscheduledProducts.length === 0) return;
 
         this.unscheduledProducts = this.unscheduledProducts.map(p => {
@@ -1224,19 +1261,33 @@ export default class Dtvscm_productRequest extends LightningElement {
 
 
     // ───────── Shared Logic ─────────
+    _isNeedByDateInvalid() {
+        return this.isUnscheduledTab &&
+            this.needByDate &&
+            this.needByDate < this.todayDate;
+    }
+
+    _blockIfInvalidNeedByDate() {
+        if (!this._isNeedByDateInvalid()) return false;
+        this.dispatchEvent(new ShowToastEvent({
+            title: 'Invalid Date',
+            message: 'Please select today or a future date.',
+            variant: 'error'
+        }));
+        this.needByDate = this.originalNeedByDate || '';
+        return true;
+    }
+
     handleNeedByDateChange(event) {
         const selectedDate = event.target.value;
-        const today = this.todayDate;
 
-        if (selectedDate && selectedDate < today) {
-            event.target.setCustomValidity('Please select today or a future date');
+        if (this.isUnscheduledTab && selectedDate && selectedDate < this.todayDate) {
+            event.target.setCustomValidity('Please select today or a future date.');
             event.target.reportValidity();
-            return;
-        }
-        
-        if (this.originalNeedByDate && selectedDate && selectedDate < this.originalNeedByDate) {
-            event.target.setCustomValidity('Cannot select a date earlier than previously saved date');
-            event.target.reportValidity();
+            const lastValid = this.originalNeedByDate || '';
+            this.needByDate = lastValid;
+            event.target.value = lastValid;
+            event.target.setCustomValidity('');
             return;
         }
 
@@ -1289,6 +1340,29 @@ export default class Dtvscm_productRequest extends LightningElement {
         this.prliQtyMap = new Map(snapshot.qtyMap || []);
     }
 
+    _applyDraftPrInfoFromWire() {
+        const data = this._draftPrWire?.data;
+        if (!data) return;
+        const edges = data?.uiapi?.query?.ProductRequest?.edges || [];
+        if (edges.length === 0) return;
+        const existingPr = edges[0]?.node;
+        if (!existingPr) return;
+
+        const nextNumber = existingPr?.ProductRequestNumber?.value || '';
+        const nextStatus = existingPr?.Status?.value || this.statusDefault;
+
+        if (this.isScheduledTab) {
+            if (!(this.activePrStatus === this.statusSubmit && nextStatus === this.statusDefault)) {
+                this.activeScheduledPrStatus = nextStatus;
+                this.activePrStatus = nextStatus;
+            }
+            this.activeScheduledPrNumber = nextNumber;
+        } else {
+            this.activeUnscheduledPrNumber = nextNumber;
+        }
+        this.activePrNumber = nextNumber;
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // SAVE — ensure PR exists, then delta-sync PRLIs to match UI
     //
@@ -1299,22 +1373,28 @@ export default class Dtvscm_productRequest extends LightningElement {
     @track isSaving = false;
 
     // Shared Save / Submit Logic
-    async handleSave() {
+    async handleSave(options = {}) {
+        const { suppressToast = false } = options;
         if (!this._ensureConfigReady()) return;
         if (this.isSubmitted) {
-            this.dispatchEvent(new ShowToastEvent({
-                title: 'Request Submitted',
-                message: 'This Product Request is submitted and can no longer be edited.',
-                variant: 'info'
-            }));
+            if (!suppressToast) {
+                this.dispatchEvent(new ShowToastEvent({
+                    title: 'Request Submitted',
+                    message: 'This Product Request is submitted and can no longer be edited.',
+                    variant: 'info'
+                }));
+            }
             return;
         }
+        if (this._blockIfInvalidNeedByDate()) return;
         if (!this.isPrReady) {
-            this.dispatchEvent(new ShowToastEvent({
-                title: 'Please wait',
-                message: 'Loading existing Product Request...',
-                variant: 'info'
-            }));
+            if (!suppressToast) {
+                this.dispatchEvent(new ShowToastEvent({
+                    title: 'Please wait',
+                    message: 'Loading existing Product Request...',
+                    variant: 'info'
+                }));
+            }
             return;
         }
 
@@ -1326,28 +1406,77 @@ export default class Dtvscm_productRequest extends LightningElement {
             const hasSaveErrors = createErrors.length > 0 || updateErrors.length > 0 || deleteErrors.length > 0;
 
             // ── STEP 5: Toast ─────────────────────────────────────────────
-            if (!hasSaveErrors) {
-                this.dispatchEvent(new ShowToastEvent({
-                    title: '✅ Saved',
-                    message: `Draft saved — ${delta.created} added, ${delta.updated} updated, ${delta.deleted} removed.`,
-                    variant: 'success'
-                }));
-            } else {
-                const msg = [...createErrors, ...updateErrors, ...deleteErrors].join(' | ');
-                this.dispatchEvent(new ShowToastEvent({
-                    title: 'Saved with Issues',
-                    message: msg,
-                    variant: 'warning', mode: 'sticky'
-                }));
+            if (!suppressToast) {
+                if (!hasSaveErrors) {
+                    const totalChanges = delta.created + delta.updated + delta.deleted;
+                    if (this.isUnscheduledTab) {
+                        const isNeedByDateChanged = !!(this.needByDate && this.needByDate !== this.originalNeedByDate);
+                        if (isNeedByDateChanged) {
+                            this.unscheduledOriginalNeedByDate = this.needByDate;
+                            this.originalNeedByDate = this.needByDate;
+                        }
+
+                        if (totalChanges === 0 && isNeedByDateChanged) {
+                            this.dispatchEvent(new ShowToastEvent({
+                                title: '✅ Saved',
+                                message: 'Need By Date updated successfully.',
+                                variant: 'success'
+                            }));
+                        } else if (totalChanges > 0 && isNeedByDateChanged) {
+                            this.dispatchEvent(new ShowToastEvent({
+                                title: '✅ Saved',
+                                message: 'Products updated and Need By Date updated successfully.',
+                                variant: 'success'
+                            }));
+                        } else if (totalChanges > 0) {
+                            this.dispatchEvent(new ShowToastEvent({
+                                title: '✅ Saved',
+                                message: 'Updated successfully',
+                                variant: 'success'
+                            }));
+                        } else {
+                            this.dispatchEvent(new ShowToastEvent({
+                                title: 'No Changes',
+                                message: 'No changes to save.',
+                                variant: 'info'
+                            }));
+                        }
+                    } else {
+                        if (totalChanges === 0) {
+                            this.dispatchEvent(new ShowToastEvent({
+                                title: 'No Changes',
+                                message: 'No changes to save.',
+                                variant: 'info'
+                            }));
+                        } else {
+                            const isRemoveOnly = this.isScheduledTab && delta.deleted > 0 && delta.created === 0;
+                            const message = isRemoveOnly ? 'Removed successfully' : 'Saved successfully';
+                            this.dispatchEvent(new ShowToastEvent({
+                                title: '✅ Saved',
+                                message: message,
+                                variant: 'success'
+                            }));
+                        }
+                    }
+                } else {
+                    const msg = [...createErrors, ...updateErrors, ...deleteErrors].join(' | ');
+                    this.dispatchEvent(new ShowToastEvent({
+                        title: 'Saved with Issues',
+                        message: msg,
+                        variant: 'warning', mode: 'sticky'
+                    }));
+                }
             }
 
         } catch (err) {
             console.error('❌ Save failed:', err);
-            this.dispatchEvent(new ShowToastEvent({
-                title: 'Save Failed',
-                message: err?.body?.message || err.message,
-                variant: 'error', mode: 'sticky'
-            }));
+            if (!suppressToast) {
+                this.dispatchEvent(new ShowToastEvent({
+                    title: 'Save Failed',
+                    message: err?.body?.message || err.message,
+                    variant: 'error', mode: 'sticky'
+                }));
+            }
         } finally {
             this.isSaving = false;
         }
@@ -1482,16 +1611,43 @@ export default class Dtvscm_productRequest extends LightningElement {
             this._saveSavedSnapshot();
         }
 
+        const totalChanges = delta.created + delta.updated + delta.deleted;
+        if (totalChanges > 0) {
+            let expectedIds = [];
+            if (this.isScheduledTab) {
+                expectedIds = this.selectedProducts
+                    .map((p) => p.product2Id)
+                    .filter(Boolean);
+            } else if (this.isUnscheduledTab) {
+                expectedIds = this.unscheduledProducts
+                    .filter((p) => p.product2Id && p.selected && Number(p.qty || 0) > 0)
+                    .map((p) => p.product2Id);
+            }
+            this._expectedPrliProductIds = new Set(expectedIds);
+            this._pendingPrliSync = true;
+        } else {
+            this._expectedPrliProductIds = null;
+            this._pendingPrliSync = false;
+        }
+
         // ── STEP 4: Refresh PR + PRLI wires so UI reflects saved state.
         // isSaving=true blocks wiredPrli from calling _applyQuantitiesFromPrliMap
         // mid-refresh. After the wire settles, we call it explicitly here
         // with the updated prliMap so deselected products (qty=0) are not restored.
         await this._refreshPrData();
-        await new Promise(resolve => setTimeout(resolve, 600));
+        await new Promise(resolve => setTimeout(resolve, 100));
 
         this._applySavedSnapshotIfOffline();
-        this._applySelectionsFromPrliMap();
-        this._applyQuantitiesFromPrliMap();
+        this._applyDraftPrInfoFromWire();
+        if (!this._pendingPrliSync) {
+            this._allowSelectionApplyDuringSave = true;
+            try {
+                this._applySelectionsFromPrliMap();
+            } finally {
+                this._allowSelectionApplyDuringSave = false;
+            }
+            this._applyQuantitiesFromPrliMap();
+        }
 
         return { delta, createErrors, updateErrors, deleteErrors };
     }
@@ -1778,6 +1934,7 @@ export default class Dtvscm_productRequest extends LightningElement {
             }));
             return;
         }
+        if (this._blockIfInvalidNeedByDate()) return;
 
         // ── UNSCHEDULED: direct submit path ──────────────────────────────
         // Bypasses handleSave() to avoid the "✅ Saved" toast and double-refresh.
@@ -1807,9 +1964,11 @@ export default class Dtvscm_productRequest extends LightningElement {
                 }
 
                 // Step 4: update PR status to Submitted
+                const submitDateTime = new Date().toISOString();
                 const fields = {};
                 fields[PR_ID.fieldApiName]     = this.activePrId;
                 fields[PR_STATUS.fieldApiName] = this.statusSubmit;
+                fields[PR_SUBMIT_DATE.fieldApiName] = submitDateTime;
 
                 console.log('⚡ Submitting Unscheduled PR:', this.activePrId);
                 await updateRecord({ fields });
@@ -1851,7 +2010,7 @@ export default class Dtvscm_productRequest extends LightningElement {
 
                 this.dispatchEvent(new ShowToastEvent({
                     title: '✅ Submitted',
-                    message: 'Product Request submitted. You can now create a new Unscheduled request.',
+                    message: 'Submitted successfully.',
                     variant: 'success'
                 }));
 
@@ -1874,7 +2033,7 @@ export default class Dtvscm_productRequest extends LightningElement {
 
         // ── SCHEDULED: existing flow — Save first, then status update ────
         // Save first to sync PRLIs
-        await this.handleSave();
+        await this.handleSave({ suppressToast: true });
 
         if (!this.activePrId) {
             this.dispatchEvent(new ShowToastEvent({
@@ -1886,9 +2045,11 @@ export default class Dtvscm_productRequest extends LightningElement {
         }
 
         try {
+            const submitDateTime = new Date().toISOString();
             const fields = {};
             fields[PR_ID.fieldApiName]     = this.activePrId;
             fields[PR_STATUS.fieldApiName] = this.statusSubmit;
+            fields[PR_SUBMIT_DATE.fieldApiName] = submitDateTime;
 
             console.log('⚡ Submitting PR:', this.activePrId);
             await updateRecord({ fields });
@@ -1921,7 +2082,7 @@ export default class Dtvscm_productRequest extends LightningElement {
 
             this.dispatchEvent(new ShowToastEvent({
                 title: '✅ Submitted',
-                message: 'Product Request submitted successfully.',
+                message: 'Submitted successfully.',
                 variant: 'success'
             }));
 
