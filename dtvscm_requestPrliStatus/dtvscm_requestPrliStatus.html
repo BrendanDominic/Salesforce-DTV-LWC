@@ -1,0 +1,56 @@
+<template>
+    <div class="component-root">
+
+        <!-- Header -->
+        <div class="comp-header">
+            <button class="back-btn" onclick={handleBack} title="Back">
+                <lightning-icon icon-name="utility:chevronleft" size="small"></lightning-icon>
+            </button>
+            <span class="comp-title">Line Items</span>
+        </div>
+
+        <p class="pr-number">{productRequestNumber}</p>
+
+        <!-- Loading -->
+        <template if:true={isLoading}>
+            <div class="state-wrapper">
+                <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+            </div>
+        </template>
+
+        <!-- Error -->
+        <template if:true={hasError}>
+            <div class="state-wrapper">
+                <p class="error-text">{errorMessage}</p>
+            </div>
+        </template>
+
+        <!-- Empty -->
+        <template if:true={isEmpty}>
+            <div class="state-wrapper">
+                <p class="empty-text">No line items found.</p>
+            </div>
+        </template>
+
+        <!-- Line Items -->
+        <template if:true={showList}>
+            <div class="grid-wrapper">
+                <div class="tile-grid">
+                    <template for:each={lineItems} for:item="item">
+                        <div key={item.Id} class="tile-card">
+                            <div class="tile-row">
+                                <span class="tile-label">Product</span>
+                                <span class="tile-value">{item.ProductName}</span>
+                            </div>
+                            <div class="tile-row last">
+                                <span class="tile-label">Qty Requested</span>
+                                <span class="tile-value">{item.QuantityRequested}</span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+
+    </div>
+</template>
