@@ -41,6 +41,38 @@
     background: rgba(255, 255, 255, 0.3); /* ← Slightly brighter on hover */
 }
 
+/* ── Refresh Button ───────────────────────────────────────────────────────────
+   Mirrors the back-btn style, positioned on the right side of the header. */
+.refresh-btn {
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    padding: 0.85rem 1.45rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 1.5rem;
+    color: #ffffff;
+    flex-shrink: 0;
+    position: absolute;
+    right: 1.75rem;
+    min-width: 4.8rem;
+}
+
+.refresh-btn lightning-icon {
+    --lwc-colorTextIconDefault: #ffffff;
+    filter: brightness(0) invert(1);
+}
+
+.refresh-btn:hover:not([disabled]) {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.refresh-btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .comp-title {
     font-size: 1.25rem;
     font-weight: 700;
