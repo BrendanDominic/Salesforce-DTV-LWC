@@ -1,0 +1,115 @@
+<template> 
+        <div class="component-root">
+        <!-- Detail View — only render child when recordId is confirmed set -->
+        <template lwc:if={showDetail}>
+            <template lwc:if={selectedRecordId}>
+                <c-dtvscm_request-prli-status
+                    record-id={selectedRecordId}
+                    product-request-number={selectedPRNumber}
+                    onback={handleBack}>
+                </c-dtvscm_request-prli-status>
+            </template>
+            <template lwc:else>
+                <div class="state-wrapper">
+                    <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+                </div>
+            </template>
+        </template>
+        <!-- List View -->
+        
+        <template lwc:else>
+            <lightning-card>
+                <!-- Header -->
+                <div class="comp-header">
+                    <button class="back-btn" onclick={handleHomeBack} title="Back">
+                        <lightning-icon icon-name="utility:chevronleft" size="small"></lightning-icon>
+                    </button>
+                    <span class="comp-title">Request Status</span>
+                </div>
+
+                <!-- Tab Bar -->
+                <div class="tab-bar">
+                    <button class={openTabClass} data-tab="open" onclick={handleTabClick}>{openTabLabel}</button>
+                    <button class={closedTabClass} data-tab="closed" onclick={handleTabClick}>{closedTabLabel}</button>
+                </div>
+
+                <!-- Loading -->
+                <template lwc:if={isLoading}>
+                    <div class="state-wrapper">
+                        <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+                    </div>
+                </template>
+
+                <!-- Error -->
+                <template lwc:elseif={hasError}>
+                    <div class="state-wrapper">
+                        <p class="error-text">{errorMessage}</p>
+                    </div>
+                </template>
+
+                <!-- Empty -->
+                <template lwc:elseif={isEmpty}>
+                    <div class="state-wrapper">
+                        <p class="empty-text">No product requests found.</p>
+                    </div>
+                </template>
+
+                <!-- Tiles -->
+                <template lwc:else>
+                    <div class="grid-wrapper">
+                        <div class="tile-grid">
+                            <template for:each={records} for:item="record">
+                                <div key={record.Id}
+                                    class="tile-card"
+                                    data-id={record.Id}
+                                    data-number={record.ProductRequestNumber}
+                                    onclick={handleTileClick}>
+
+                                    <div class="tile-header">
+                                        <span class="tile-title">{record.ProductRequestNumber}</span>
+                                        <span class={record.statusBadgeClass}>{record.Status}</span>
+                                    </div>
+
+                                    <div class="tile-meta">
+                                        <template lwc:if={record.CreatedDate}>
+                                            <div class="tile-meta-row">
+                                                <lightning-icon icon-name="utility:event" size="xx-small" class="meta-icon"></lightning-icon>
+                                                <span class="tile-meta-label">Created Date:</span>
+                                                <lightning-formatted-date-time
+                                                    value={record.CreatedDate}
+                                                    year="numeric"
+                                                    month="short"
+                                                    day="2-digit">
+                                                </lightning-formatted-date-time>
+                                            </div>
+                                        </template>
+                                        <template lwc:if={record.DTVSCM_Submit_Date__c}>
+                                            <div class="tile-meta-row">
+                                                <lightning-icon icon-name="utility:event" size="xx-small" class="meta-icon"></lightning-icon>
+                                                <span class="tile-meta-label">Submit Date:</span>
+                                                <lightning-formatted-date-time
+                                                    value={record.DTVSCM_Submit_Date__c}
+                                                    year="numeric"
+                                                    month="short"
+                                                    day="2-digit">
+                                                </lightning-formatted-date-time>
+                                            </div>
+                                        </template>
+                                        <div class="tile-meta-row">
+                                            <lightning-icon icon-name="utility:truck" size="xx-small" class="meta-icon"></lightning-icon>
+                                            <span class="tile-meta-label">Shipment:</span>
+                                            <span class="meta-value">{record.ShipmentType}</span>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+            </lightning-card>
+        </template>
+
+    </div>
+</template>
