@@ -7,6 +7,9 @@
                 <lightning-icon icon-name="utility:chevronleft" size="small"></lightning-icon>
             </button>
             <span class="comp-title">Line Items</span>
+            <button class="refresh-btn" onclick={handleRefresh} disabled={isRefreshing} title="Refresh">
+                <lightning-icon icon-name="utility:refresh" size="small"></lightning-icon>
+            </button>
         </div>
 
         <p class="pr-number">{productRequestNumber}</p>
