@@ -1,34 +1,34 @@
 <template>
     <div class={shellClass}>
-
         <!-- HEADER -->
         <div class="header">
             <button class="back-btn" onclick={handleBack} title="Back">
                 <lightning-icon
                     icon-name="utility:chevronleft"
-                    size="medium"
+                    size="x-small"
                     alternative-text="Back"
                     class="back-btn__icon">
                 </lightning-icon>
             </button>
             <span class="header-title">Request</span>
             <div class="header-right">
+                <span class="net-inline-label">{networkInlineLabel}</span>
                 <template if:true={hasPendingQueue}>
                     <span class="pending-badge">⏳ {pendingQueueCount}</span>
                 </template>
             </div>
         </div>
 
-        <!-- NETWORK BANNER -->
-        <div class={networkBannerClass}>
-            <span>{networkLabel}</span>
-            <template if:true={showSyncButton}>
+        <!-- NETWORK BANNER — sync button only, shown when offline queue exists -->
+        <template if:true={showSyncButton}>
+            <div class={networkBannerClass}>
+                <span>{networkLabel}</span>
                 <button class="sync-btn" onclick={handleSyncQueue} disabled={isSyncing}>{syncLabel}</button>
-            </template>
-            <template if:true={isSyncing}>
-                <lightning-spinner size="x-small" alternative-text="Syncing..."></lightning-spinner>
-            </template>
-        </div>
+                <template if:true={isSyncing}>
+                    <lightning-spinner size="x-small" alternative-text="Syncing..."></lightning-spinner>
+                </template>
+            </div>
+        </template>
 
         <!-- TAB BAR -->
         <div class="tab-bar">
@@ -81,51 +81,66 @@
                 <div class="err-banner">⚠️ {wireErrorMessage}</div>
             </template>
 
+            <template if:true={showNoServiceResource}>
+                <div class="center-state">
+                    <p class="state-txt">No Service Resource found.</p>
+                </div>
+            </template>
+            <template if:true={showNoProducts}>
+                <div class="center-state">
+                    <p class="state-txt">No products available for this Service Resource.</p>
+                </div>
+            </template>
+
             <!-- Product List -->
             <template if:false={isLoading}>
-                <div class={productListClass}>
+                <template if:false={showNoServiceResource}>
+                    <template if:false={showNoProducts}>
+                        <div class={productListClass}>
 
-                    <template if:false={hasFilteredProducts}>
-                        <div class="center-state">
-                            <p class="state-txt">No products found.</p>
-                        </div>
-                    </template>
+                            <template if:false={hasFilteredProducts}>
+                                <div class="center-state">
+                                    <p class="state-txt">No products found.</p>
+                                </div>
+                            </template>
 
-                    <template for:each={filteredProducts} for:item="product">
-                        <div
-                            key={product.id}
-                            class={product.rowClass}
-                            data-productid={product.id}
-                            onclick={handleProductToggle}>
+                            <template for:each={filteredProducts} for:item="product">
+                                <div
+                                    key={product.id}
+                                    class={product.rowClass}
+                                    data-productid={product.id}
+                                    onclick={handleProductToggle}>
 
-                            <!-- Left: product info -->
-                            <div class="product-info">
-                                <span class="product-name">{product.name}</span>
-                                <span class="product-meta">{product.description}</span>
-                            </div>
-
-                            <!-- Centre: Default Quantity badge -->
-                            <div class="qty-badge-wrap">
-                                <span class="qty-label">Qty</span>
-                                <span class="qty-value">{product.defaultQuantity}</span>
-                            </div>
-
-                            <!-- Right: select indicator -->
-                            <div class="select-indicator">
-                                <template if:true={product.selected}>
-                                    <div class="checkbox checked">
-                                        <lightning-icon icon-name="utility:check" size="x-small" class="check-icon"></lightning-icon>
+                                    <!-- Left: product info -->
+                                    <div class="product-info">
+                                        <span class="product-name">{product.name}</span>
+                                        <span class="product-meta">{product.productCode}</span>
                                     </div>
-                                </template>
-                                <template if:false={product.selected}>
-                                    <div class="checkbox"></div>
-                                </template>
-                            </div>
+
+                                    <!-- Centre: Default Quantity badge -->
+                                    <div class="qty-badge-wrap">
+                                        <span class="qty-label">Qty</span>
+                                        <span class="qty-value">{product.defaultQuantity}</span>
+                                    </div>
+
+                                    <!-- Right: select indicator -->
+                                    <div class="select-indicator">
+                                        <template if:true={product.selected}>
+                                            <div class="checkbox checked">
+                                                <lightning-icon icon-name="utility:check" size="x-small" class="check-icon"></lightning-icon>
+                                            </div>
+                                        </template>
+                                        <template if:false={product.selected}>
+                                            <div class="checkbox"></div>
+                                        </template>
+                                    </div>
+
+                                </div>
+                            </template>
 
                         </div>
                     </template>
-
-                </div>
+                </template>
             </template>
 
             <!-- Selection Summary -->
@@ -154,10 +169,11 @@
                     id="needByDate"
                     type="date"
                     class="needby-input"
-                    value={needByDate}
+                    value={needByDateInputValue}
                     onchange={handleNeedByDateChange}
                     min={todayDate}
                     variant="label-hidden"
+                    title={formattedNeedByDate}
                     disabled={isSubmitted}>
                 </lightning-input>
             </div>
@@ -176,73 +192,87 @@
                     </template>
                 </div>
             </div>
-            <div class={productListClass}>
-                <template if:false={hasFilteredUnscheduledProducts}>
-                    <div class="center-state unscheduled-state">
-                        <div class="empty-icon">📋</div>
-                        <p class="empty-title">Unscheduled</p>
-                        <p class="state-txt">No products found.</p>
-                    </div>
-                </template>
+            <template if:true={showNoServiceResource}>
+                <div class="center-state">
+                    <p class="state-txt">No Service Resource found.</p>
+                </div>
+            </template>
+            <template if:true={showNoProducts}>
+                <div class="center-state">
+                    <p class="state-txt">No products available for this Service Resource.</p>
+                </div>
+            </template>
+            <template if:false={showNoServiceResource}>
+                <template if:false={showNoProducts}>
+                    <div class={productListClass}>
+                        <template if:false={hasFilteredUnscheduledProducts}>
+                            <div class="center-state unscheduled-state">
+                                <div class="empty-icon">📋</div>
+                                <p class="empty-title">Unscheduled</p>
+                                <p class="state-txt">No products found.</p>
+                            </div>
+                        </template>
 
-                <template for:each={filteredUnscheduledProducts} for:item="product">
-                    <div
-                        key={product.id}
-                        class={product.rowClass}
-                        data-productid={product.id}
-                        onclick={handleUnscheduledToggle}>
-                        <div class="product-info">
-                            <span class="product-name">{product.name}</span>
-                            <span class="product-meta">{product.productCode}</span>
-                        </div>
-
-                        <div class="qty-badge-wrap">
-                            <span class="qty-label">Default</span>
-                            <span class="qty-value">{product.defaultQuantity}</span>
-                        </div>
-
-                        <div class="qty-controls">
-                            <button
-                                class="qty-btn"
+                        <template for:each={filteredUnscheduledProducts} for:item="product">
+                            <div
+                                key={product.id}
+                                class={product.rowClass}
                                 data-productid={product.id}
-                                onclick={handleQtyDecrement}
-                                disabled={isSubmitted}>
-                                -
-                            </button>
-                            <input
-                                class="qty-input"
-                                type="text"
-                                min="0"
-                                inputmode="numeric"
-                                pattern="[0-9]*"
-                                data-productid={product.id}
-                                value={product.qty}
-                                oninput={handleQtyInput}
-                                onkeydown={handleQtyKeyDown}
-                                onclick={handleQtyClick}
-                                disabled={isSubmitted} />
-                            <button
-                                class="qty-btn"
-                                data-productid={product.id}
-                                onclick={handleQtyIncrement}
-                                disabled={isSubmitted}>
-                                +
-                            </button>
-                        </div>
-
-                        <div class="select-indicator">
-                            <template if:true={product.selected}>
-                                <div class="checkbox checked">
-                                    <lightning-icon icon-name="utility:check" size="x-small" class="check-icon"></lightning-icon>
+                                onclick={handleUnscheduledToggle}>
+                                <div class="product-info">
+                                    <span class="product-name">{product.name}</span>
+                                    <span class="product-meta">{product.productCode}</span>
                                 </div>
-                            </template>
-                            <template if:false={product.selected}>
-                                <div class="checkbox"></div>
-                            </template>
-                        </div>
+
+                                <div class="qty-badge-wrap">
+                                    <span class="qty-label">Default</span>
+                                    <span class="qty-value">{product.defaultQuantity}</span>
+                                </div>
+
+                                <div class="qty-controls">
+                                    <button
+                                        class="qty-btn"
+                                        data-productid={product.id}
+                                        onclick={handleQtyDecrement}
+                                        disabled={isSubmitted}>
+                                        -
+                                    </button>
+                                    <input
+                                        class="qty-input"
+                                        type="text"
+                                        min="0"
+                                        inputmode="numeric"
+                                        pattern="[0-9]*"
+                                        data-productid={product.id}
+                                        value={product.qty}
+                                        oninput={handleQtyInput}
+                                        onkeydown={handleQtyKeyDown}
+                                        onclick={handleQtyClick}
+                                        disabled={isSubmitted} />
+                                    <button
+                                        class="qty-btn"
+                                        data-productid={product.id}
+                                        onclick={handleQtyIncrement}
+                                        disabled={isSubmitted}>
+                                        +
+                                    </button>
+                                </div>
+
+                                <div class="select-indicator">
+                                    <template if:true={product.selected}>
+                                        <div class="checkbox checked">
+                                            <lightning-icon icon-name="utility:check" size="x-small" class="check-icon"></lightning-icon>
+                                        </div>
+                                    </template>
+                                    <template if:false={product.selected}>
+                                        <div class="checkbox"></div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </template>
-            </div>
+            </template>
         </template>
 
         <!-- BOTTOM BAR -->
