@@ -1,5 +1,5 @@
 import { LightningElement, api, wire, track } from 'lwc';
-import { gql, graphql } from 'lightning/uiGraphQLApi';
+import { gql, graphql, refreshGraphQL } from 'lightning/uiGraphQLApi';
 
 const GET_LINE_ITEMS = gql`
     query GetLineItems($recordId: ID) {
@@ -35,9 +35,14 @@ export default class ProductRequestLineItems extends LightningElement {
     isLoading    = true;
     hasError     = false;
     errorMessage = '';
+    @track isRefreshing = false;
+
+    _wiredLineItemsResult;
 
     @wire(graphql, { query: GET_LINE_ITEMS, variables: '$queryVariables' })
-    wiredLineItems({ data, errors }) {
+    wiredLineItems(value) {
+        this._wiredLineItemsResult = value;
+        const { data, errors } = value;
         if (data === undefined && errors === undefined) return;
         this.isLoading = false;
         if (errors?.length) {
@@ -53,6 +58,18 @@ export default class ProductRequestLineItems extends LightningElement {
                 QuantityRequested: node.QuantityRequested?.value            || '—',
                 ProductName:       node.Product2?.Name?.value               || '—'
             }));
+        }
+    }
+
+    async handleRefresh() {
+        if (this.isRefreshing || !this._wiredLineItemsResult) return;
+        this.isRefreshing = true;
+        try {
+            await refreshGraphQL(this._wiredLineItemsResult);
+        } catch (err) {
+            console.error('Error refreshing line items:', err);
+        } finally {
+            this.isRefreshing = false;
         }
     }
 
